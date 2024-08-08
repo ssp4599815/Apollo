@@ -7,6 +7,9 @@ import scrapy
 
 
 class FulijiItem(scrapy.Item):
-    name = scrapy.Field()
     title = scrapy.Field()
+    href = scrapy.Field()
     link = scrapy.Field()
+    image_urls = scrapy.Field()  # 为 ImagesPipeline 添加
+    images = scrapy.Field()  # 用于存储下载信息
+    image_paths = scrapy.Field()  # 用于存储图片路径
