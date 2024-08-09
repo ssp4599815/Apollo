@@ -27,8 +27,11 @@ RANDOMIZE_DOWNLOAD_DELAY = True
 # CONCURRENT_REQUESTS_PER_DOMAIN = 16
 # CONCURRENT_REQUESTS_PER_IP = 16
 
-# Disable cookies (enabled by default)
-# COOKIES_ENABLED = False
+# 禁止cookies
+COOKIES_ENABLED = False
+
+# 设置超时时间
+DOWNLOAD_TIMEOUT = 10
 
 # Disable Telnet Console (enabled by default)
 # TELNETCONSOLE_ENABLED = False
@@ -60,7 +63,8 @@ RANDOMIZE_DOWNLOAD_DELAY = True
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    "fuliji.pipelines.FulijiPipeline": 300,
+    "fuliji.pipelines.FulijiPipeline": 1,
+    "fuliji.pipelines.ImgPipeline": 2,
 }
 
 # Specifies the folder where the images will be stored

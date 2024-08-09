@@ -9,7 +9,18 @@ from scrapy.exceptions import DropItem
 from scrapy.pipelines.images import ImagesPipeline
 
 
-class FulijiPipeline(ImagesPipeline):
+class FulijiPipeline():
+    def process_item(self, item, spider):
+        return item
+
+
+class ImgPipeline(ImagesPipeline):
+
+    def get_media_requests(self, item, info):
+        for image_url in item['image_urls']:
+            logging.info("image_url: %s" % image_url)
+            print("image_url: %s" % image_url)
+            yield scrapy.Request(image_url)
 
     def file_path(self, request, response=None, info=None):
         url = request.url
@@ -26,9 +37,3 @@ class FulijiPipeline(ImagesPipeline):
 
         print("iem: %s" % item)
         return item
-
-    def get_media_requests(self, item, info):
-        for image_url in item['image_urls']:
-            logging.info("image_url: %s" % image_url)
-            print("image_url: %s" % image_url)
-            yield scrapy.Request(image_url)

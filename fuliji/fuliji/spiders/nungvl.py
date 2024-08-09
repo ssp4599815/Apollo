@@ -21,7 +21,6 @@ class NungvlSpider(scrapy.Spider):
 
         for title, href in zip(fuliji_titles, fuliji_hrefs):
             item = FulijiItem()
-            item['title'] = title
             item['images'] = title
             complete_url = response.urljoin(href)  # Combining base url with href
             logging.info("complete_url: %s" % complete_url)
@@ -33,6 +32,7 @@ class NungvlSpider(scrapy.Spider):
         src_links = response.xpath('//div[@class="contentme"]/a//img/@src').extract()
         if src_links:
             item['image_urls'] = [response.urljoin(src) for src in src_links]  # Generate absolute URLs
+            logging.info(f"image_urls: {item['image_urls']}")
             yield item
 
             # 尝试获取当前页码

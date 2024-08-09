@@ -1,3 +1,2 @@
-Scrapy
+scrapy
 itemadapter
-openpyxl
