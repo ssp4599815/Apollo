@@ -63,8 +63,7 @@ DOWNLOAD_TIMEOUT = 10
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    "fuliji.pipelines.FulijiPipeline": 1,
-    "fuliji.pipelines.ImgPipeline": 2,
+    "fuliji.pipelines.ImgPipeline": 1,
 }
 
 # Specifies the folder where the images will be stored
@@ -122,3 +121,8 @@ FEED_EXPORT_ENCODING = "utf-8"
 #
 # # 如果等于True，日志仅仅包含根路径，False显示日志输出组件
 # LOG_SHORT_NAMES = False
+
+
+# 去重过滤器
+DUPEFILTER_CLASS = 'scrapy.dupefilter.RFPDupeFilter'
+

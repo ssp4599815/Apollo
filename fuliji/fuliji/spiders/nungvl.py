@@ -8,7 +8,7 @@ from ..items import FulijiItem
 
 class NungvlSpider(scrapy.Spider):
     name = "nungvl"
-    allowed_domains = ["nungvl.net"]
+    allowed_domains = ["nungvl.net", "wp.com"]
 
     def start_requests(self):
         for page in range(1, 2):
@@ -21,7 +21,7 @@ class NungvlSpider(scrapy.Spider):
 
         for title, href in zip(fuliji_titles, fuliji_hrefs):
             item = FulijiItem()
-            item['images'] = title
+            item['title'] = title
             complete_url = response.urljoin(href)  # Combining base url with href
             logging.info("complete_url: %s" % complete_url)
             item['href'] = complete_url
