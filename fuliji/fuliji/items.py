@@ -1,8 +1,5 @@
-# Define here the models for your scraped items
-#
-# See documentation in:
-# https://docs.scrapy.org/en/latest/topics/items.html
-
+# !/usr/bin/env python
+# -*-coding:utf-8 -*-
 import scrapy
 
 
