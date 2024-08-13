@@ -25,12 +25,12 @@ class SfnmtSpider(scrapy.Spider):
     def parse(self, response):
         # 获取当前页面的所有图片链接
         sel = Selector(response)
-        sfnmt_titles = sel.xpath("//div[@id='list']//li//a/text()").extract()
-        sfnmt_hrefs = sel.xpath("//div[@id='list']//li//a/@href").extract()
+        sfnmt_titles = sel.xpath("//div[@class='Title']/a/text()").extract()
+        sfnmt_hrefs = sel.xpath("//div[@class='Title']/a/@href").extract()
 
         for title, href in zip(sfnmt_titles, sfnmt_hrefs):
             item = FulijiItem()
-            item['title'] = title.strip()
+            item['title'] = ' '.join(title.strip().split())
             complete_url = response.urljoin(href)
 
             # 如果URL不在数据库中，则发起请求
