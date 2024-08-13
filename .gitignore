@@ -2,6 +2,7 @@
 ### Example user template
 temp/
 images/
+nohup.out
 
 # IntelliJ project files
 .idea

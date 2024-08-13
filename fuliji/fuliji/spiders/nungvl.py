@@ -19,7 +19,7 @@ class NungvlSpider(scrapy.Spider):
         self.visited_urls_db = shelve.open("./data/visited_nungvl_urls")
 
     def start_requests(self):
-        for page in range(1, 30):
+        for page in range(200, 500):
             yield Request(url=f'https://nungvl.net/?page={page}')
 
     def parse(self, response):
