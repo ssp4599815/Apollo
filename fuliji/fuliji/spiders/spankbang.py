@@ -1,38 +1,51 @@
+# !/usr/bin/env python
+# -*-coding:utf-8 -*-
 import logging
+import os
 
 import scrapy
+from base_api.modules.quality import Quality
 from scrapy import Selector
 
-from ..items import SpankBangItem
+from ..items import VideoItem
+from ..utils.spankbang import Client
 
 
 class SpankbangSpider(scrapy.Spider):
     name = "spankbang"
     allowed_domains = ["spankbang.com"]
-    start_urls = ["https://spankbang.com/7tdxv/playlist/porn"]
-    handle_httpstatus_list = [403]
 
+    custom_settings = {
+        'ITEM_PIPELINES': {
+        }
+    }
+
+    start_urls = ["https://spankbang.com/axxn0/playlist/porn"]
 
     def parse(self, response):
-        if response.status == 403:
-            # 在这里记录额外的调试信息
-            self.logger.error(f"Request got a forbidden response: {response.url}")
-            self.logger.error(f"Response headers: {response.headers}")
-            # 如有必要，可以尝试利用更多的响应内容进行调试
-            self.logger.error(f"Response body: {response.text}")
-            return
-
-
         sel = Selector(response)
-
         spankbakg_titles = sel.xpath('//div[@class="video-item"]/a/@title').extract()
         spankbakg_hrefs = sel.xpath('//div[@class="video-item"]/a/@href').extract()
 
         for title, href in zip(spankbakg_titles, spankbakg_hrefs):
-            item = SpankBangItem()
-            item['title'] = title
-
             complete_url = response.urljoin(href)
-            logging.info("complete_url: %s" % complete_url)
+            item = VideoItem()
+            item['title'] = title.strip()
             item['href'] = complete_url
-            yield item
+            logging.info("Requesting URL: %s" % complete_url)
+            yield scrapy.Request(url=response.urljoin(href), callback=self.save_video, meta={'item': item})
+
+    def save_video(self, response):
+        item = response.meta['item']
+        # Initialize a Client object
+        client = Client()
+
+        # Fetch a video
+        video_object = client.get_video(item['href'])
+
+        # Get information from videos
+        print("Video title:", video_object.title)
+        # print("Video description:", video_object.description)
+
+        HOME_PATH = os.path.expanduser("~")
+        video_object.download(quality=Quality.BEST, path=os.path.join(HOME_PATH, "Documents/视频/spankbang/"), use_hls=False)
