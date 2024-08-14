@@ -25,7 +25,7 @@ class SfnmtSpider(scrapy.Spider):
 
     def start_requests(self):
         # 从数据库中读取已经访问过的URL
-        for page in range(1, 50):
+        for page in range(1, 5):
             yield Request("http://www.sfnmt.com/taotu/listhtnl/25_{}.html".format(page))
 
     def parse(self, response):
@@ -37,6 +37,8 @@ class SfnmtSpider(scrapy.Spider):
         for title, href in zip(sfnmt_titles, sfnmt_hrefs):
             item = FulijiItem()
             item['title'] = ' '.join(title.strip().split())
+            item['site'] = 'sfnmt.com'
+
             complete_url = response.urljoin(href)
 
             # 如果URL不在数据库中，则发起请求
@@ -55,10 +57,10 @@ class SfnmtSpider(scrapy.Spider):
             item['image_urls'] = []
 
         src_links = response.xpath("//div[@id='picg']//a//img/@src").extract()
-        logging.info(f"src_links: {src_links}")
+        # logging.info(f"src_links: {src_links}")
         if src_links:
             item['image_urls'].extend([response.urljoin(src) for src in src_links])
-            logging.info(f"image_urls: {item['image_urls']}")
+            # logging.info(f"image_urls: {item['image_urls']}")
 
             # 提取所有数字
             page_numbers = response.xpath("//div[@class='pagelist']/a/text()").extract()

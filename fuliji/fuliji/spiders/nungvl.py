@@ -26,7 +26,7 @@ class NungvlSpider(scrapy.Spider):
         self.visited_urls_db = shelve.open("./temp/visited_nungvl_urls")
 
     def start_requests(self):
-        for page in range(712, 1000):
+        for page in range(1, 3):
             yield Request(url=f'https://nungvl.net/?page={page}')
 
     def parse(self, response):
@@ -38,6 +38,7 @@ class NungvlSpider(scrapy.Spider):
             item = FulijiItem()
             item['title'] = title.strip()
             item['site'] = 'nungvl.net'
+
             complete_url = response.urljoin(href)  # Combining base url with href
 
             # 检查接口是否已经被访问过
