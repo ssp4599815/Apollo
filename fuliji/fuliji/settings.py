@@ -13,15 +13,27 @@ USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36
 ROBOTSTXT_OBEY = False
 
 # 并发请求数
-CONCURRENT_REQUESTS = 16
+CONCURRENT_REQUESTS = 100
+CONCURRENT_REQUESTS_PER_DOMAIN = 100
+CONCURRENT_REQUESTS_PER_IP = 0
+
+# 线程池大小
+REACTOR_THREADPOOL_MAXSIZE = 20
+
 # 下载延迟
 DOWNLOAD_DELAY = 0.25
 # 随机延迟
 RANDOMIZE_DOWNLOAD_DELAY = True
+
+# 禁止重定向
+REDIRECT_ENABLED = False
+
 # 禁止cookies
 COOKIES_ENABLED = False
 # 设置超时时间
 DOWNLOAD_TIMEOUT = 10
+# 重试失败请求最多5次
+RETRY_TIMES = 5
 
 # 管道管理
 ITEM_PIPELINES = {
@@ -31,13 +43,15 @@ ITEM_PIPELINES = {
 # 图片存储路径
 # 获取当前用户的家目录
 HOME_PATH = os.path.expanduser("~")
-IMAGES_STORE = os.path.join(HOME_PATH, "Documents/fuliji")
+IMAGES_STORE = os.path.join(HOME_PATH, "Documents/图片")
 # 图片过滤器，最小高度和宽度
-IMAGES_MIN_HEIGHT = 110
-IMAGES_MIN_WIDTH = 110
+IMAGES_MIN_HEIGHT = 100
+IMAGES_MIN_WIDTH = 100
 
 # 指定request_fingerprint的实现
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
 
+# 降低日志级别
+LOG_LEVEL = 'INFO'

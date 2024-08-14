@@ -1,6 +1,7 @@
 # !/usr/bin/env python
 # -*-coding:utf-8 -*-
 import logging
+import os
 import shelve
 
 import scrapy
@@ -11,15 +12,20 @@ from ..items import FulijiItem
 
 class SfnmtSpider(scrapy.Spider):
     name = "sfnmt"
+    # 自定义相关配置
+    HOME_PATH = os.path.expanduser("~")
+    custom_settings = {
+        'IMAGES_STORE': os.path.join(HOME_PATH, "Documents/图片/sfnmt.com")
+    }
 
     def __init__(self, *args, **kwargs):
         super(SfnmtSpider, self).__init__(*args, **kwargs)
         # 打开一个shelve数据库存储已经访问过的URL
-        self.visited_urls_db = shelve.open("./data/visited_sfnmt_urls")
+        self.visited_urls_db = shelve.open("./temp/visited_sfnmt_urls")
 
     def start_requests(self):
         # 从数据库中读取已经访问过的URL
-        for page in range(1, 2):
+        for page in range(1, 5):
             yield Request("http://www.sfnmt.com/taotu/listhtnl/25_{}.html".format(page))
 
     def parse(self, response):
@@ -31,6 +37,8 @@ class SfnmtSpider(scrapy.Spider):
         for title, href in zip(sfnmt_titles, sfnmt_hrefs):
             item = FulijiItem()
             item['title'] = ' '.join(title.strip().split())
+            item['site'] = 'sfnmt.com'
+
             complete_url = response.urljoin(href)
 
             # 如果URL不在数据库中，则发起请求
@@ -49,10 +57,10 @@ class SfnmtSpider(scrapy.Spider):
             item['image_urls'] = []
 
         src_links = response.xpath("//div[@id='picg']//a//img/@src").extract()
-        logging.info(f"src_links: {src_links}")
+        # logging.info(f"src_links: {src_links}")
         if src_links:
             item['image_urls'].extend([response.urljoin(src) for src in src_links])
-            logging.info(f"image_urls: {item['image_urls']}")
+            # logging.info(f"image_urls: {item['image_urls']}")
 
             # 提取所有数字
             page_numbers = response.xpath("//div[@class='pagelist']/a/text()").extract()
