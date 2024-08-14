@@ -24,10 +24,13 @@ class ImgPipeline(ImagesPipeline):
 
     def item_completed(self, results, item, info):
         image_paths = [x['path'] for ok, x in results if ok]
-        logging.info("image_paths: %s" % image_paths)
+        # logging.info("image_paths: %s" % image_paths)
         if not image_paths:
-            raise DropItem('Item contains no files')
+            raise DropItem("No images downloaded %s" % image_paths)
         item['image_paths'] = image_paths
+        # 打印完结的日志
+        logging.info("Download images completed: %s" % item['title'])
+
         return item
 
     def file_path(self, request, response=None, info=None):
@@ -37,7 +40,7 @@ class ImgPipeline(ImagesPipeline):
         # 获取图片格式
         image_format = url.split('.')[-1]
         file_name = f"{item['title']}-{index + 1}"  # 以图片URL的顺序命名文件
-        logging.info("file_name: %s" % file_name)
+        # logging.info("file_name: %s" % file_name)
         return f"{item['title']}/{file_name}.{image_format}"
 
     def get_directory_path(self, item):
@@ -46,5 +49,5 @@ class ImgPipeline(ImagesPipeline):
         """
         settings = get_project_settings()
         images_store = settings.get('IMAGES_STORE', '')
-        dir_path = os.path.join(images_store, item['title'])
+        dir_path = os.path.join(images_store, item['site'], item['title'])
         return dir_path

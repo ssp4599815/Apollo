@@ -1,6 +1,7 @@
 # !/usr/bin/env python
 # -*-coding:utf-8 -*-
 import logging
+import os
 import shelve
 
 import scrapy
@@ -11,15 +12,20 @@ from ..items import FulijiItem
 
 class SfnmtSpider(scrapy.Spider):
     name = "sfnmt"
+    # 自定义相关配置
+    HOME_PATH = os.path.expanduser("~")
+    custom_settings = {
+        'IMAGES_STORE': os.path.join(HOME_PATH, "Documents/图片/sfnmt.com")
+    }
 
     def __init__(self, *args, **kwargs):
         super(SfnmtSpider, self).__init__(*args, **kwargs)
         # 打开一个shelve数据库存储已经访问过的URL
-        self.visited_urls_db = shelve.open("./data/visited_sfnmt_urls")
+        self.visited_urls_db = shelve.open("./temp/visited_sfnmt_urls")
 
     def start_requests(self):
         # 从数据库中读取已经访问过的URL
-        for page in range(1, 2):
+        for page in range(1, 50):
             yield Request("http://www.sfnmt.com/taotu/listhtnl/25_{}.html".format(page))
 
     def parse(self, response):
