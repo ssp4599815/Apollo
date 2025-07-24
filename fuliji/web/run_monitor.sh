@@ -4,13 +4,6 @@
 
 echo "🚀 启动M3U8下载监控..."
 
-# 检查是否安装了必要的依赖
-echo "📦 检查依赖..."
-python3 -c "import streamlit, pandas, plotly" 2>/dev/null || {
-    echo "❌ 缺少必要依赖，正在安装..."
-    pip3 install -r requirements.txt
-}
-
 # 获取当前脚本目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
