@@ -17,7 +17,7 @@ class ChiguaSpider(scrapy.Spider):
         super(ChiguaSpider, self).__init__(*args, **kwargs)
 
     def start_requests(self):
-        for page in range(5, 8):
+        for page in range(5, 6):
             yield Request(url=f'https://beer.ggkpznuh.cc/search/%E8%90%9D%E8%8E%89/{page}/')
 
     def parse(self, response):
