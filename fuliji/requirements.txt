@@ -1,5 +1,0 @@
-# This file contains the list of dependencies required for the project.
-scrapy>=2.5.0
-requests>=2.25.0
-Pillow>=8.0.0
-# Add any additional dependencies below this line.

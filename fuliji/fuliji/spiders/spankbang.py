@@ -48,4 +48,5 @@ class SpankbangSpider(scrapy.Spider):
         # print("Video description:", video_object.description)
 
         HOME_PATH = os.path.expanduser("~")
-        video_object.download(quality=Quality.BEST, path=os.path.join(HOME_PATH, "Documents/视频/spankbang/"), use_hls=False)
+        video_object.download(quality=Quality.BEST, path=os.path.join(HOME_PATH, "Documents/视频/spankbang/"),
+                              use_hls=False)
