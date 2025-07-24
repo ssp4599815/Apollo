@@ -16,3 +16,6 @@ class FulijiItem(scrapy.Item):
 class VideoItem(scrapy.Item):
     title = scrapy.Field()
     href = scrapy.Field()
+    m3u8_url = scrapy.Field()  # M3U8视频链接
+    site = scrapy.Field()
+    video_path = scrapy.Field()  # 用于存储视频路径
