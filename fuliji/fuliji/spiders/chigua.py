@@ -10,7 +10,7 @@ from ..items import VideoItem
 
 
 class ChiguaSpider(scrapy.Spider):
-    name = "51chigua"
+    name = "chigua"
     allowed_domains = ["beer.ggkpznuh.cc"]
 
     def __init__(self, *args, **kwargs):
@@ -28,7 +28,7 @@ class ChiguaSpider(scrapy.Spider):
         for title, href in zip(chigua_titles, chigua_hrefs):
             item = VideoItem()
             item['title'] = title.strip()
-            item['site'] = '51chigua'
+            item['site'] = 'chigua'
 
             if "search" in href:
                 continue
