@@ -18,7 +18,7 @@ class ChiguaSpider(scrapy.Spider):
 
     def start_requests(self):
         for page in range(1,3):
-            #for tag in ["萝莉",'一线天','馒头逼','福利姬','自慰‘,'美乳']:
+            #for tag in ["萝莉",'一线天','馒头逼','福利姬','自慰‘,'美乳','粉嫩','学生妹','鲍鱼','嫩穴','小穴','大学','高中','海角']:
             yield Request(url=f'https://cabinet.ujgtivy.club/search/%E4%B8%80%E7%BA%BF%E5%A4%A9/{page}/')
 
     def parse(self, response):
