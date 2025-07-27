@@ -67,6 +67,7 @@ class M3U8Pipeline:
     2. 临时文件管理  
     3. SQLite数据库记录
     4. 自动清理临时文件
+    5. 排除指定标题的视频下载
     """
 
     def __init__(self):
@@ -109,16 +110,48 @@ class M3U8Pipeline:
         self.lock = threading.RLock()
         # 是否已通知爬虫结束
         self.shutdown_notified = False
+        
+        # 初始化排除标题列表
+        self.excluded_titles = self._load_excluded_titles()
 
         logging.info(
             f"M3U8Pipeline初始化完成 - 最大并行下载数: {self.max_concurrent_downloads}, FFmpeg线程数: {self.max_threads}")
         logging.info(f"视频存储目录: {self.videos_store}")
         logging.info(f"临时文件目录: {self.temp_store}")
         logging.info(f"数据库文件: {self.db_path}")
+        logging.info(f"已加载排除标题数量: {len(self.excluded_titles)}")
 
         # 启动监控线程
         self.monitor_thread = threading.Thread(target=self._monitor_downloads, daemon=True)
         self.monitor_thread.start()
+        
+    def _load_excluded_titles(self):
+        """
+        加载从 utils/chigua 文件中排除的标题列表
+        """
+        excluded_titles = set()
+        chigua_path = os.path.join(os.path.dirname(__file__), 'utils', '51chigua.txt')
+        
+        if os.path.exists(chigua_path):
+            try:
+                with open(chigua_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):  # 跳过空行和注释
+                            excluded_titles.add(line)
+                logging.info(f"成功从 {chigua_path} 加载 {len(excluded_titles)} 个排除标题")
+            except Exception as e:
+                logging.error(f"加载排除标题文件失败: {e}")
+        else:
+            logging.warning(f"排除标题文件不存在: {chigua_path}")
+            
+        return excluded_titles
+
+    def _is_title_excluded(self, title):
+        """
+        检查标题是否在排除列表中
+        """
+        return title in self.excluded_titles
 
     def _get_url_hash(self, url):
         """生成URL的唯一哈希标识"""
@@ -168,6 +201,11 @@ class M3U8Pipeline:
         site = item.get('site', 'unknown')
 
         logging.info(f"M3U8Pipeline接收到item: {title}")
+
+        # 检查是否在排除列表中
+        if self._is_title_excluded(title):
+            logging.info(f"视频 '{title}' 在排除列表中，跳过下载")
+            return item
 
         # 检查是否已经下载完成
         if self._is_download_completed(m3u8_url, title):

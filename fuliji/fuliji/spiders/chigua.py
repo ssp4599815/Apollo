@@ -11,14 +11,15 @@ from ..items import VideoItem
 
 class ChiguaSpider(scrapy.Spider):
     name = "chigua"
-    allowed_domains = ["beer.ggkpznuh.cc"]
+    allowed_domains = ["cabinet.ujgtivy.club"]
 
     def __init__(self, *args, **kwargs):
         super(ChiguaSpider, self).__init__(*args, **kwargs)
 
     def start_requests(self):
-        for page in range(6, 8):
-            yield Request(url=f'https://beer.ggkpznuh.cc/search/%E8%90%9D%E8%8E%89/{page}/')
+        for page in range(1,3):
+            #for tag in ["萝莉",'一线天','馒头逼','福利姬','自慰‘,'美乳']:
+            yield Request(url=f'https://cabinet.ujgtivy.club/search/%E4%B8%80%E7%BA%BF%E5%A4%A9/{page}/')
 
     def parse(self, response):
         sel = Selector(response)
