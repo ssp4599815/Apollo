@@ -1,4 +1,4 @@
-# !/usr/bin/env python
+#!/usr/bin/env python
 # -*-coding:utf-8 -*-
 import concurrent.futures
 import logging
@@ -13,30 +13,36 @@ from scrapy.exceptions import DropItem
 from scrapy.pipelines.images import ImagesPipeline
 from scrapy.utils.project import get_project_settings
 
-from .database import DownloadDatabase
+from .utils.database import DownloadDatabase
+from .utils.logger_config import PipelineLoggerMixin
 
 
-class ImgPipeline(ImagesPipeline):
+class ImgPipeline(PipelineLoggerMixin, ImagesPipeline):
+
+    def __init__(self, store_uri, download_func=None, settings=None):
+        super(ImgPipeline, self).__init__(store_uri, download_func, settings)
+        # 设置pipeline专属日志
+        self.setup_pipeline_logger('img')
 
     def get_media_requests(self, item, info):
         # 获取将用于存储图片的目录路径
         dir_path = self.get_directory_path(item)
-        logging.info("Checking if directory exists at: %s" % dir_path)
+        self.log(f"Checking if directory exists at: {dir_path}")
         if not os.path.exists(dir_path):
-            logging.info("Directory does not exist, downloading images")
+            self.log(f"Directory does not exist, downloading images")
             for index, image_url in enumerate(item['image_urls']):
                 yield scrapy.Request(image_url, meta={'item': item, 'index': index})
         else:
-            logging.info("Directory already exists, skipping download for images in: %s" % dir_path)
+            self.log(f"Directory already exists, skipping download for images in: {dir_path}")
 
     def item_completed(self, results, item, info):
         image_paths = [x['path'] for ok, x in results if ok]
-        # logging.info("image_paths: %s" % image_paths)
         if not image_paths:
-            raise DropItem("No images downloaded %s" % image_paths)
+            self.log(f"No images downloaded {image_paths}", logging.WARNING)
+            raise DropItem(f"No images downloaded {image_paths}")
         item['image_paths'] = image_paths
         # 打印完结的日志
-        logging.info("Download images completed: %s" % item['title'])
+        self.log(f"Download images completed: {item['title']}")
 
         return item
 
@@ -46,21 +52,31 @@ class ImgPipeline(ImagesPipeline):
         url = request.url
         # 获取图片格式
         image_format = url.split('.')[-1]
-        file_name = f"{item['title']}-{index + 1}"  # 以图片URL的顺序命名文件
-        # logging.info("file_name: %s" % file_name)
-        return f"{item['title']}/{file_name}.{image_format}"
+        file_name = f"{item['title']}-{index + 1}"  # 以图片URL的顺序命名
+        # 确保字符合法用于文件名
+        file_name = self.sanitize_filename(file_name)
+        self.log(f"Storing image at: {file_name}.{image_format}")
+        return f"{item['site']}/{file_name}.{image_format}"
 
     def get_directory_path(self, item):
-        """
-        Returns the directory path for the given item.
-        """
+        # 基于item的'title'构建图片存储目录路径
         settings = get_project_settings()
-        images_store = settings.get('IMAGES_STORE', '')
-        dir_path = os.path.join(images_store, item['site'], item['title'])
-        return dir_path
+        images_store = settings.get('IMAGES_STORE')
+        sanitized_title = self.sanitize_filename(item['title'])
+        return os.path.join(images_store, item['site'], sanitized_title)
+
+    def sanitize_filename(self, filename):
+        """清理文件名，移除或替换不符合要求的字符."""
+        import re
+        # 移除/替换文件名中不合法的字符
+        sanitized_name = re.sub(r'[\\/*?:"<>|\s]', '_', filename)
+        # 限制文件名长度
+        if len(sanitized_name) > 100:
+            sanitized_name = sanitized_name[:100]
+        return sanitized_name
 
 
-class M3U8Pipeline:
+class M3U8Pipeline(PipelineLoggerMixin):
     """
     改进的M3U8视频下载管道，支持：
     1. 断点续传
@@ -71,6 +87,9 @@ class M3U8Pipeline:
     """
 
     def __init__(self):
+        # 设置pipeline专属日志
+        self.setup_pipeline_logger('m3u8')
+        
         self.settings = get_project_settings()
         self.videos_store = self.settings.get('VIDEOS_STORE', 'videos')
 
@@ -78,7 +97,7 @@ class M3U8Pipeline:
         self.temp_store = os.path.join(os.path.dirname(self.videos_store), 'temp_downloads')
 
         # 数据库文件路径
-        self.db_path = os.path.join(os.path.dirname(self.videos_store), 'downloads.db')
+        self.db_path = self.settings.get('DATABASE_PATH', './data/downloads.db')
 
         # FFmpeg多线程下载配置
         self.max_threads = self.settings.get('FFMPEG_MAX_THREADS', 20)
@@ -89,7 +108,7 @@ class M3U8Pipeline:
         for directory in [self.videos_store, self.temp_store]:
             if not os.path.exists(directory):
                 os.makedirs(directory)
-                logging.info(f"创建目录: {directory}")
+                self.log(f"创建目录: {directory}")
 
         # 初始化数据库
         self.db = DownloadDatabase(self.db_path)
@@ -114,12 +133,12 @@ class M3U8Pipeline:
         # 初始化排除标题列表
         self.excluded_titles = self._load_excluded_titles()
 
-        logging.info(
+        self.log(
             f"M3U8Pipeline初始化完成 - 最大并行下载数: {self.max_concurrent_downloads}, FFmpeg线程数: {self.max_threads}")
-        logging.info(f"视频存储目录: {self.videos_store}")
-        logging.info(f"临时文件目录: {self.temp_store}")
-        logging.info(f"数据库文件: {self.db_path}")
-        logging.info(f"已加载排除标题数量: {len(self.excluded_titles)}")
+        self.log(f"视频存储目录: {self.videos_store}")
+        self.log(f"临时文件目录: {self.temp_store}")
+        self.log(f"数据库文件: {self.db_path}")
+        self.log(f"已加载排除标题数量: {len(self.excluded_titles)}")
 
         # 启动监控线程
         self.monitor_thread = threading.Thread(target=self._monitor_downloads, daemon=True)
@@ -139,11 +158,11 @@ class M3U8Pipeline:
                         line = line.strip()
                         if line and not line.startswith('#'):  # 跳过空行和注释
                             excluded_titles.add(line)
-                logging.info(f"成功从 {chigua_path} 加载 {len(excluded_titles)} 个排除标题")
+                self.log(f"成功从 {chigua_path} 加载 {len(excluded_titles)} 个排除标题")
             except Exception as e:
-                logging.error(f"加载排除标题文件失败: {e}")
+                self.log(f"加载排除标题文件失败: {e}")
         else:
-            logging.warning(f"排除标题文件不存在: {chigua_path}")
+            self.log(f"排除标题文件不存在: {chigua_path}")
             
         return excluded_titles
 
@@ -162,7 +181,7 @@ class M3U8Pipeline:
         completed, file_path = self.db.is_download_completed(url)
 
         if completed:
-            logging.info(f"视频 {title} 已下载完成，文件路径: {file_path}")
+            self.log(f"视频 {title} 已下载完成，文件路径: {file_path}")
             return True
 
         return False
@@ -193,29 +212,29 @@ class M3U8Pipeline:
         """
         # 检查item是否包含m3u8_url字段
         if 'm3u8_url' not in item:
-            logging.info(f"Item {item.get('title', 'Unknown')} 没有m3u8_url字段，跳过")
+            self.log(f"Item {item.get('title', 'Unknown')} 没有m3u8_url字段，跳过")
             return item
 
         m3u8_url = item['m3u8_url']
         title = item.get('title', 'Unknown')
         site = item.get('site', 'unknown')
 
-        logging.info(f"M3U8Pipeline接收到item: {title}")
+        self.log(f"M3U8Pipeline接收到item: {title}")
 
         # 检查是否在排除列表中
         if self._is_title_excluded(title):
-            logging.info(f"视频 '{title}' 在排除列表中，跳过下载")
+            self.log(f"视频 '{title}' 在排除列表中，跳过下载")
             return item
 
         # 检查是否已经下载完成
         if self._is_download_completed(m3u8_url, title):
-            logging.info(f"视频 {title} 已下载完成，跳过下载")
+            self.log(f"视频 {title} 已下载完成，跳过下载")
             return item
 
         # 检查是否已经在下载队列中
         with self.lock:
             if m3u8_url in self.downloading_urls:
-                logging.info(f"视频 {title} 已在下载队列中，跳过")
+                self.log(f"视频 {title} 已在下载队列中，跳过")
                 return item
 
             # 标记为正在下载
@@ -229,7 +248,7 @@ class M3U8Pipeline:
         # 确保目录存在
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
-            logging.info(f"创建目录: {dir_path}")
+            self.log(f"创建目录: {dir_path}")
 
         # 获取临时文件路径并添加数据库记录
         temp_file_path = self._get_temp_file_path(m3u8_url, title)
@@ -241,7 +260,7 @@ class M3U8Pipeline:
         # 添加完成回调
         future.add_done_callback(lambda f: self._download_completed(f, m3u8_url, title))
 
-        logging.info(f"已提交M3U8下载任务到线程池: {title}")
+        self.log(f"已提交M3U8下载任务到线程池: {title}")
 
         return item
 
@@ -256,7 +275,7 @@ class M3U8Pipeline:
                 if self.active_downloads != last_count:
                     last_count = self.active_downloads
                     if self.active_downloads > 0:
-                        logging.info(f"当前正在进行的下载任务: {self.active_downloads}")
+                        self.log(f"当前正在进行的下载任务: {self.active_downloads}")
 
                 # 如果没有活动下载且已经通知过关闭，则退出监控
                 if self.active_downloads == 0 and self.shutdown_notified:
@@ -270,7 +289,7 @@ class M3U8Pipeline:
         m3u8_url = item['m3u8_url']
 
         try:
-            logging.info(f"开始下载视频: {title}")
+            self.log(f"开始下载视频: {title}")
 
             # 获取临时文件路径和最终文件路径
             temp_file_path = self._get_temp_file_path(m3u8_url, title)
@@ -280,7 +299,7 @@ class M3U8Pipeline:
             resume_download = os.path.exists(temp_file_path) and os.path.getsize(temp_file_path) > 0
 
             if resume_download:
-                logging.info(f"发现临时文件，尝试断点续传: {title}")
+                self.log(f"发现临时文件，尝试断点续传: {title}")
 
             # 下载视频到临时文件
             success = self.download_m3u8_with_resume(m3u8_url, temp_file_path, title, resume_download)
@@ -291,7 +310,7 @@ class M3U8Pipeline:
 
                 # 下载成功，移动到正式目录
                 shutil.move(temp_file_path, final_file_path)
-                logging.info(f"✅ 视频下载完成，已移动到: {final_file_path}")
+                self.log(f"✅ 视频下载完成，已移动到: {final_file_path}")
 
                 # 更新数据库记录
                 self.db.update_download_status(m3u8_url, 'completed', final_file_path, file_size)
@@ -303,13 +322,13 @@ class M3U8Pipeline:
             else:
                 # 下载失败，更新状态
                 self.db.update_download_status(m3u8_url, 'failed')
-                logging.error(f"❌ 视频下载失败，临时文件保留: {temp_file_path}")
+                self.log(f"❌ 视频下载失败，临时文件保留: {temp_file_path}")
                 return {'success': False, 'title': title}
 
         except Exception as e:
             # 下载异常，更新状态
             self.db.update_download_status(m3u8_url, 'error')
-            logging.error(f"异步下载视频失败: {title}, 错误: {e}")
+            self.log(f"异步下载视频失败: {title}, 错误: {e}")
             return {'success': False, 'title': title, 'error': str(e)}
 
     def _download_completed(self, future, m3u8_url, title):
@@ -319,17 +338,17 @@ class M3U8Pipeline:
         try:
             result = future.result()
             if result['success']:
-                logging.info(f"✅ M3U8视频下载成功: {title}")
+                self.log(f"✅ M3U8视频下载成功: {title}")
             else:
-                logging.error(f"❌ M3U8视频下载失败: {title}, 错误: {result.get('error', '未知错误')}")
+                self.log(f"❌ M3U8视频下载失败: {title}, 错误: {result.get('error', '未知错误')}")
         except Exception as e:
-            logging.error(f"下载回调处理失败: {title}, 错误: {e}")
+            self.log(f"下载回调处理失败: {title}, 错误: {e}")
         finally:
             # 从下载集合中移除并减少活动下载计数
             with self.lock:
                 self.downloading_urls.discard(m3u8_url)
                 self.active_downloads -= 1
-                logging.info(f"视频 {title} 处理完成，剩余下载任务: {self.active_downloads}")
+                self.log(f"视频 {title} 处理完成，剩余下载任务: {self.active_downloads}")
 
                 # 如果所有下载都完成了，通知条件变量
                 if self.active_downloads == 0:
@@ -361,9 +380,9 @@ class M3U8Pipeline:
             cmd.append(temp_file_path)
 
             if resume:
-                logging.info(f"🔄 断点续传下载: {title}")
+                self.log(f"🔄 断点续传下载: {title}")
             else:
-                logging.info(f"🚀 开始新下载 (线程数: {self.max_threads}): {title}")
+                self.log(f"🚀 开始新下载 (线程数: {self.max_threads}): {title}")
 
             # 执行命令并捕获输出（兼容Python 3.6及以下版本）
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=3600)  # 1小时超时
@@ -371,22 +390,22 @@ class M3U8Pipeline:
             if result.returncode == 0:
                 # 检查文件是否真的下载完成（文件大小大于0）
                 if os.path.exists(temp_file_path) and os.path.getsize(temp_file_path) > 0:
-                    logging.info(f"✅ 视频下载完成: {title}")
+                    self.log(f"✅ 视频下载完成: {title}")
                     return True
                 else:
-                    logging.error(f"❌ 下载完成但文件无效: {title}")
+                    self.log(f"❌ 下载完成但文件无效: {title}")
                     return False
             else:
-                logging.error(f"❌ ffmpeg下载失败，返回码: {result.returncode}, 视频: {title}")
-                logging.error(f"错误输出: {result.stderr}")
+                self.log(f"❌ ffmpeg下载失败，返回码: {result.returncode}, 视频: {title}")
+                self.log(f"错误输出: {result.stderr}")
                 return False
 
         except subprocess.TimeoutExpired:
-            logging.error(f"⏰ ffmpeg下载超时: {title}")
+            self.log(f"⏰ ffmpeg下载超时: {title}")
             return False
 
         except Exception as e:
-            logging.error(f"❌ 下载过程中出现异常: {title}, 错误: {e}")
+            self.log(f"❌ 下载过程中出现异常: {title}, 错误: {e}")
             return False
 
     def generate_unique_filename(self, dir_path, title, file_ext):
@@ -406,7 +425,7 @@ class M3U8Pipeline:
         while True:
             new_filename = f"{cleaned_title}_{counter}{file_ext}"
             if not os.path.exists(os.path.join(dir_path, new_filename)):
-                logging.info(f"文件 {base_filename} 已存在，使用新文件名: {new_filename}")
+                self.log(f"文件 {base_filename} 已存在，使用新文件名: {new_filename}")
                 return new_filename
             counter += 1
 
@@ -455,15 +474,15 @@ class M3U8Pipeline:
                     if file_mtime < week_ago:
                         os.remove(temp_file_path)
                         cleaned_count += 1
-                        logging.info(f"删除过期临时文件: {temp_file}")
+                        self.log(f"删除过期临时文件: {temp_file}")
                 except Exception as e:
-                    logging.error(f"删除临时文件失败 {temp_file}: {e}")
+                    self.log(f"删除临时文件失败 {temp_file}: {e}")
 
             if cleaned_count > 0:
-                logging.info(f"清理了 {cleaned_count} 个过期临时文件")
+                self.log(f"清理了 {cleaned_count} 个过期临时文件")
 
         except Exception as e:
-            logging.error(f"清理临时文件时出错: {e}")
+            self.log(f"清理临时文件时出错: {e}")
 
     def get_download_status(self):
         """
@@ -484,11 +503,11 @@ class M3U8Pipeline:
         """
         爬虫关闭时等待所有下载任务完成再关闭
         """
-        logging.info("🔄 爬虫即将关闭，等待所有M3U8下载任务完成...")
+        self.log("🔄 爬虫即将关闭，等待所有M3U8下载任务完成...")
 
         # 显示当前下载状态
         status = self.get_download_status()
-        logging.info(f"📊 下载状态统计: {status}")
+        self.log(f"📊 下载状态统计: {status}")
 
         with self.lock:
             # 标记为已通知关闭
@@ -496,11 +515,11 @@ class M3U8Pipeline:
 
             # 如果没有活动下载，直接关闭
             if self.active_downloads == 0:
-                logging.info("✅ 没有活动的下载任务，直接关闭爬虫")
+                self.log("✅ 没有活动的下载任务，直接关闭爬虫")
                 self._cleanup_resources()
                 return
 
-            logging.info(f"⏳ 等待 {self.active_downloads} 个下载任务完成...")
+            self.log(f"⏳ 等待 {self.active_downloads} 个下载任务完成...")
 
         # 等待所有下载完成
         with self.downloads_done:
@@ -514,8 +533,8 @@ class M3U8Pipeline:
 
         # 最终状态统计
         final_status = self.get_download_status()
-        logging.info(f"📊 最终下载状态: {final_status}")
-        logging.info("🎉 所有M3U8下载任务已完成，爬虫可以安全关闭")
+        self.log(f"📊 最终下载状态: {final_status}")
+        self.log("🎉 所有M3U8下载任务已完成，爬虫可以安全关闭")
 
     def _cleanup_resources(self):
         """
@@ -525,15 +544,15 @@ class M3U8Pipeline:
             # 关闭数据库连接
             if hasattr(self, 'db'):
                 self.db.close()
-                logging.info("🗄️ 数据库连接已关闭")
+                self.log("🗄️ 数据库连接已关闭")
 
             # 关闭线程池
             if hasattr(self, 'download_executor'):
                 self.download_executor.shutdown(wait=False)
-                logging.info("🧹 下载线程池已关闭")
+                self.log("🧹 下载线程池已关闭")
 
         except Exception as e:
-            logging.error(f"❌ 关闭资源时出错: {e}")
+            self.log(f"❌ 关闭资源时出错: {e}")
 
     def _append_to_excluded_list(self, title):
         """
@@ -552,7 +571,7 @@ class M3U8Pipeline:
             # 同时添加到内存中的排除集合，避免重复下载
             self.excluded_titles.add(title)
             
-            logging.info(f"✅ 已将标题 '{title}' 追加到排除列表文件: {chigua_path}")
+            self.log(f"✅ 已将标题 '{title}' 追加到排除列表文件: {chigua_path}")
             
         except Exception as e:
-            logging.error(f"❌ 追加标题到排除列表失败: {title}, 错误: {e}")
+            self.log(f"❌ 追加标题到排除列表失败: {title}, 错误: {e}")

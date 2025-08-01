@@ -1,16 +1,16 @@
-# !/usr/bin/env python
+#!/usr/bin/env python
 # -*-coding:utf-8 -*-
 import logging
 import os
 import shelve
-
 import scrapy
 from scrapy import Selector, Request
 
 from ..items import FulijiItem
+from ..utils.logger_config import SpiderLoggerMixin
 
 
-class SfnmtSpider(scrapy.Spider):
+class SfnmtSpider(SpiderLoggerMixin, scrapy.Spider):
     name = "sfnmt"
     # 自定义相关配置
     HOME_PATH = os.path.expanduser("~")
@@ -20,6 +20,8 @@ class SfnmtSpider(scrapy.Spider):
 
     def __init__(self, *args, **kwargs):
         super(SfnmtSpider, self).__init__(*args, **kwargs)
+        # 使用统一的日志配置
+        self.setup_spider_logger()
         # 打开一个shelve数据库存储已经访问过的URL
         self.visited_urls_db = shelve.open("./temp/visited_sfnmt_urls")
 
@@ -43,11 +45,11 @@ class SfnmtSpider(scrapy.Spider):
 
             # 如果URL不在数据库中，则发起请求
             if complete_url in self.visited_urls_db:
-                logging.info(f"Skipping {complete_url}, already visited.")
+                self.log(f"Skipping {complete_url}, already visited.", logging.INFO)
                 continue
             self.visited_urls_db[complete_url] = True
 
-            logging.info("complete_url: %s" % complete_url)
+            self.log(f"complete_url: {complete_url}", logging.INFO)
             item['href'] = complete_url
             yield Request(url=complete_url, callback=self.parse_details, meta={'item': item})
 
@@ -57,10 +59,10 @@ class SfnmtSpider(scrapy.Spider):
             item['image_urls'] = []
 
         src_links = response.xpath("//div[@id='picg']//a//img/@src").extract()
-        # logging.info(f"src_links: {src_links}")
+        # self.log(f"src_links: {src_links}", logging.DEBUG)
         if src_links:
             item['image_urls'].extend([response.urljoin(src) for src in src_links])
-            # logging.info(f"image_urls: {item['image_urls']}")
+            # self.log(f"image_urls: {item['image_urls']}", logging.DEBUG)
 
             # 提取所有数字
             page_numbers = response.xpath("//div[@class='pagelist']/a/text()").extract()
@@ -78,15 +80,16 @@ class SfnmtSpider(scrapy.Spider):
                     page_base_url = page_base_url.rsplit('_', 1)[0]
 
                 next_page_url = f"{page_base_url}_{next_page}.html"
-                logging.info(f"Requesting next page: {next_page_url}")
+                self.log(f"Requesting next page: {next_page_url}", logging.INFO)
                 yield Request(url=next_page_url, callback=self.parse_details, meta={'item': item, 'page': next_page})
             else:
-                logging.info(f"No more links found, stopping further requests.")
+                self.log(f"No more links found, stopping further requests.", logging.INFO)
                 yield item
         else:
-            logging.info(f"No more links found, stopping further requests.")
+            self.log(f"No more links found, stopping further requests.", logging.INFO)
             yield item
 
     def closed(self, reason):
         # 当爬虫关闭时，确保我们也关闭了shelve数据库
         self.visited_urls_db.close()
+        self.log(f"爬虫关闭，原因: {reason}", logging.INFO)

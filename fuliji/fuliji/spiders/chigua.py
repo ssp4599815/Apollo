@@ -3,19 +3,21 @@
 import json
 import logging
 import re
-
-import scrapy
 from scrapy import Request, Selector
+import scrapy
 
 from ..items import VideoItem
+from ..utils.logger_config import SpiderLoggerMixin
 
 
-class ChiguaSpider(scrapy.Spider):
+class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
     name = "chigua"
     allowed_domains = []
 
     def __init__(self, *args, **kwargs):
         super(ChiguaSpider, self).__init__(*args, **kwargs)
+        # 使用统一的日志配置
+        self.setup_spider_logger()
 
     def start_requests(self):
         for page in range(1, 2):
@@ -39,7 +41,7 @@ class ChiguaSpider(scrapy.Spider):
 
             complete_url = response.urljoin(href)  # Combining base url with href
 
-            logging.info("Requesting URL: %s" % complete_url)
+            self.log(f"Requesting URL: {complete_url}", logging.INFO)
             item['href'] = complete_url
             yield Request(url=complete_url, callback=self.parse_details, meta={'item': item})
 
@@ -62,29 +64,29 @@ class ChiguaSpider(scrapy.Spider):
                     if video_url:
                         # 检查是否为m3u8格式的视频
                         if video_url.endswith('.m3u8') or 'm3u8' in video_url:
-                            logging.info(f"✅ 找到M3U8视频链接: {video_url}")
+                            self.log(f"✅ 找到M3U8视频链接: {video_url}", logging.INFO)
                             item['m3u8_url'] = video_url
                             m3u8_found = True
 
                             # 直接yield给pipeline处理
-                            logging.info(f"🎯 准备发送item到pipeline: {item['title']}")
+                            self.log(f"🎯 准备发送item到pipeline: {item['title']}", logging.INFO)
                             yield item
                             break  # 找到m3u8链接后直接跳出循环
 
                         else:
                             # 如果不是m3u8格式，但仍然是视频链接
-                            logging.info(f"找到其他格式视频链接: {video_url}")
+                            self.log(f"找到其他格式视频链接: {video_url}", logging.INFO)
                             if 'm3u8_url' not in item:
                                 item['m3u8_url'] = []
                             item['m3u8_url'].append(video_url)
                             yield item
 
                 except json.JSONDecodeError as e:
-                    logging.error(f"解析视频配置JSON失败: {e}")
+                    self.log(f"解析视频配置JSON失败: {e}", logging.ERROR)
                     continue
 
         if not m3u8_found:
-            logging.info("页面上未找到视频配置数据，尝试其他方式...")
+            self.log("页面上未找到视频配置数据，尝试其他方式...", logging.INFO)
 
             # 尝试其他可能的视频链接提取方式
             # 查找可能的m3u8链接
@@ -101,15 +103,15 @@ class ChiguaSpider(scrapy.Spider):
                     else:
                         video_url = response.urljoin(m3u8_link)
 
-                    logging.info(f"✅ 通过其他方式找到M3U8链接: {video_url}")
+                    self.log(f"✅ 通过其他方式找到M3U8链接: {video_url}", logging.INFO)
                     item['m3u8_url'] = video_url
 
                     # 直接yield给pipeline处理
-                    logging.info(f"🎯 准备发送item到pipeline: {item['title']}")
+                    self.log(f"🎯 准备发送item到pipeline: {item['title']}", logging.INFO)
                     yield item
                     break  # 只取第一个有效的m3u8链接
             else:
-                logging.warning(f"❌ 未找到任何视频链接: {item['title']}")
+                self.log(f"❌ 未找到任何视频链接: {item['title']}", logging.WARNING)
 
     def closed(self, reason):
-        logging.info(f"爬虫关闭，原因: {reason}")
+        self.log(f"爬虫关闭，原因: {reason}", logging.INFO)

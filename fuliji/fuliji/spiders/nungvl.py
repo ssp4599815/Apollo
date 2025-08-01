@@ -1,16 +1,16 @@
-# !/usr/bin/env python
+#!/usr/bin/env python
 # -*-coding:utf-8 -*-
 import logging
 import os
 import shelve
-
 import scrapy
 from scrapy import Request, Selector
 
 from ..items import FulijiItem
+from ..utils.logger_config import SpiderLoggerMixin
 
 
-class NungvlSpider(scrapy.Spider):
+class NungvlSpider(SpiderLoggerMixin, scrapy.Spider):
     name = "nungvl"
     allowed_domains = ["nungvl.net", "wp.com"]
 
@@ -22,6 +22,8 @@ class NungvlSpider(scrapy.Spider):
 
     def __init__(self, *args, **kwargs):
         super(NungvlSpider, self).__init__(*args, **kwargs)
+        # 使用统一的日志配置
+        self.setup_spider_logger()
         # 打开一个shelve数据库存储已经访问过的URL
         self.visited_urls_db = shelve.open("./temp/visited_nungvl_urls")
 
@@ -43,11 +45,11 @@ class NungvlSpider(scrapy.Spider):
 
             # 检查接口是否已经被访问过
             if complete_url in self.visited_urls_db:
-                logging.info(f"Skipping {complete_url}, already visited.")
+                self.log(f"Skipping {complete_url}, already visited.", logging.INFO)
                 continue
             self.visited_urls_db[complete_url] = True  # Mark the URL as visited
 
-            logging.info("Requesting URL: %s" % complete_url)
+            self.log(f"Requesting URL: {complete_url}", logging.INFO)
             item['href'] = complete_url
             yield Request(url=complete_url, callback=self.parse_details, meta={'item': item})
 
@@ -58,20 +60,18 @@ class NungvlSpider(scrapy.Spider):
 
         src_links = response.xpath('//div[@class="contentme"]/a//img/@src').extract()
         if src_links:
-            item['image_urls'].extend([response.urljoin(src) for src in src_links])
-            # logging.info(f"image_urls: {item['image_urls']}")
-            # 尝试获取当前页码
+            item['image_urls'].extend([response.urljoin(src) for src in src_links])  # 尝试获取当前页码
             current_page = response.meta.get('page', 1)
             next_page = current_page + 1
 
             if next_page <= 10:
                 next_page_url = f"{item['href']}?page={next_page}"  # 这里假设页面URL结构支持此操作
-                logging.info(f"Requesting next page: {next_page_url}")
+                self.log(f"Requesting next page: {next_page_url}", logging.INFO)
                 yield Request(url=next_page_url, callback=self.parse_details, meta={'item': item, 'page': next_page})
         else:
-            # logging.info(f"No more links found, stopping further requests.")
             yield item
 
     def closed(self, reason):
         # 当爬虫关闭时，确保我们也关闭了shelve数据库
         self.visited_urls_db.close()
+        self.log(f"爬虫关闭，原因: {reason}", logging.INFO)

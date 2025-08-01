@@ -1,6 +1,7 @@
-# !/usr/bin/env python
+#!/usr/bin/env python
 # -*-coding:utf-8 -*-
 import os
+import time
 
 BOT_NAME = "fuliji"
 SPIDER_MODULES = ["fuliji.spiders"]
@@ -64,8 +65,23 @@ REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
 
-# 降低日志级别
+# 日志配置
 LOG_LEVEL = 'DEBUG'
+# 创建logs目录（如果不存在）
+LOG_DIR = 'logs'
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+# 关闭默认的日志配置
+LOG_ENABLED = True
+LOG_STDOUT = False
+# 不在控制台显示日志
+LOG_TO_CONSOLE = False
+# 日志文件路径 - 使用默认名称，不指定具体爬虫
+# 当运行特定爬虫时，会在爬虫中动态设置
+LOG_FILE = os.path.join(LOG_DIR, f'scrapy_{time.strftime("%Y%m%d")}.log')
+
+# 日志格式
+LOG_FORMAT = '%(asctime)s [%(name)s] %(levelname)s: %(message)s'
 
 # 允许重复的请求（在这里设为False以避免重复下载）
 DUPEFILTER_DEBUG = False
