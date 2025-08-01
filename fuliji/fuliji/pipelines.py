@@ -346,7 +346,7 @@ class M3U8Pipeline:
                 'ffmpeg',
                 '-allowed_extensions', 'ALL',  # 允许所有扩展
                 '-threads', str(self.max_threads),  # 设置线程数
-                '-http_seekable', '1',  # 启用HTTP可寻址
+                # '-http_seekable', '1',  # 启用HTTP可寻址 (旧版本ffmpeg不支持此参数)
                 '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',  # 设置User-Agent
                 '-i', url,  # 输入URL
                 '-c', 'copy',  # 复制流，不重新编码
