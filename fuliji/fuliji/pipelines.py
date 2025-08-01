@@ -296,6 +296,9 @@ class M3U8Pipeline:
                 # 更新数据库记录
                 self.db.update_download_status(m3u8_url, 'completed', final_file_path, file_size)
 
+                # 将成功下载的视频标题追加到排除列表文件中
+                self._append_to_excluded_list(title)
+
                 return {'success': True, 'title': title, 'file_path': final_file_path}
             else:
                 # 下载失败，更新状态
@@ -531,3 +534,25 @@ class M3U8Pipeline:
 
         except Exception as e:
             logging.error(f"❌ 关闭资源时出错: {e}")
+
+    def _append_to_excluded_list(self, title):
+        """
+        将成功下载的视频标题追加到排除列表文件中
+        """
+        try:
+            chigua_path = os.path.join(os.path.dirname(__file__), 'utils', '51chigua.txt')
+            
+            # 确保目录存在
+            os.makedirs(os.path.dirname(chigua_path), exist_ok=True)
+            
+            # 追加标题到文件（不包含.mp4后缀）
+            with open(chigua_path, 'a', encoding='utf-8') as f:
+                f.write(f"\n{title}")
+            
+            # 同时添加到内存中的排除集合，避免重复下载
+            self.excluded_titles.add(title)
+            
+            logging.info(f"✅ 已将标题 '{title}' 追加到排除列表文件: {chigua_path}")
+            
+        except Exception as e:
+            logging.error(f"❌ 追加标题到排除列表失败: {title}, 错误: {e}")
