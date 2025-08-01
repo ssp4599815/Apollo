@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 LOGS_DIR="$PROJECT_DIR/logs"
 PID_DIR="$PROJECT_DIR/pids"
-VENV_PATH="$HOME/gitHub/Apollo/.venv"
+VENV_PATH="$HOME/github/Apollo/.venv"
 
 # 创建必要的目录
 mkdir -p "$LOGS_DIR"
