@@ -3,6 +3,7 @@ temp/
 nohup.out
 pids
 data/
+*.db
 
 ### IntelliJ project files
 .idea
