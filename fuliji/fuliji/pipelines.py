@@ -365,8 +365,8 @@ class M3U8Pipeline:
             else:
                 logging.info(f"🚀 开始新下载 (线程数: {self.max_threads}): {title}")
 
-            # 执行命令并捕获输出
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)  # 1小时超时
+            # 执行命令并捕获输出（兼容Python 3.6及以下版本）
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3600)  # 1小时超时
 
             if result.returncode == 0:
                 # 检查文件是否真的下载完成（文件大小大于0）
