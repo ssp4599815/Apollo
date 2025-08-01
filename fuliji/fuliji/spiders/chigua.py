@@ -18,7 +18,7 @@ class ChiguaSpider(scrapy.Spider):
         super(ChiguaSpider, self).__init__(*args, **kwargs)
 
     def start_requests(self):
-        for page in range(1, 10):
+        for page in range(1, 2):
             for tag in ["萝莉", '一线天', '馒头逼', '福利姬', '自慰',
                         '美乳', '粉嫩', '学生妹', '鲍鱼', '嫩穴', '小穴',
                         '大学', '高中', '海角']:
