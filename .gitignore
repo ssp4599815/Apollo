@@ -2,6 +2,7 @@
 temp/
 nohup.out
 pids
+data/
 
 ### IntelliJ project files
 .idea
