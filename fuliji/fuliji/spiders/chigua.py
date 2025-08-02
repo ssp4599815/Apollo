@@ -3,8 +3,9 @@
 import json
 import logging
 import re
-from scrapy import Request, Selector
+
 import scrapy
+from scrapy import Request, Selector
 
 from ..items import VideoItem
 from ..utils.logger_config import SpiderLoggerMixin
@@ -94,14 +95,14 @@ class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
                     video_url = m3u8_link
                 else:
                     video_url = response.urljoin(m3u8_link)
-                
+
                 m3u8_urls.append(video_url)
                 self.log(f"✅ 通过其他方式找到M3U8链接: {video_url}", logging.INFO)
 
         # 对m3u8 URL列表进行预去重
         if m3u8_urls:
             unique_m3u8_urls = self._deduplicate_m3u8_urls(m3u8_urls)
-            
+
             if unique_m3u8_urls:
                 # 根据去重后的URL数量决定如何设置item
                 if len(unique_m3u8_urls) == 1:
@@ -130,7 +131,7 @@ class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
 
             # URL标准化
             normalized_url = url.strip()
-            
+
             # 完全相同的URL去重
             if normalized_url in seen_urls:
                 self.log(f"🔄 发现重复URL，跳过: {normalized_url[:100]}...")
@@ -160,7 +161,7 @@ class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
         从URL中提取关键标识符用于重复检测
         """
         import re
-        
+
         # 方法1：提取长的字母数字组合
         matches = re.findall(r'[a-zA-Z0-9]{8,}', url)
         if matches:
@@ -190,24 +191,24 @@ class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
         """
         if not url:
             return False
-        
+
         # 基本格式检查
         if not (url.startswith('http://') or url.startswith('https://')):
             return False
-        
+
         # 检查是否包含m3u8
         if not ('.m3u8' in url.lower() or 'm3u8' in url.lower()):
             return False
-        
+
         # 检查URL长度（过短的URL可能无效）
         if len(url) < 20:
             return False
-        
+
         # 检查是否包含明显的无效字符
         invalid_chars = ['<', '>', '"', "'", '\\']
         if any(char in url for char in invalid_chars):
             return False
-        
+
         return True
 
     def closed(self, reason):

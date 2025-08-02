@@ -89,7 +89,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
     def __init__(self):
         # 设置pipeline专属日志
         self.setup_pipeline_logger('m3u8')
-        
+
         self.settings = get_project_settings()
         self.videos_store = self.settings.get('VIDEOS_STORE', 'videos')
 
@@ -135,7 +135,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
         self.lock = threading.RLock()
         # 是否已通知爬虫结束
         self.shutdown_notified = False
-        
+
         # 初始化排除标题列表
         self.excluded_titles = self._load_excluded_titles()
 
@@ -149,14 +149,14 @@ class M3U8Pipeline(PipelineLoggerMixin):
         # 启动监控线程
         self.monitor_thread = threading.Thread(target=self._monitor_downloads, daemon=True)
         self.monitor_thread.start()
-        
+
     def _load_excluded_titles(self):
         """
         加载从 utils/chigua 文件中排除的标题列表
         """
         excluded_titles = set()
         chigua_path = os.path.join(os.path.dirname(__file__), 'utils', '51chigua.txt')
-        
+
         if os.path.exists(chigua_path):
             try:
                 with open(chigua_path, 'r', encoding='utf-8') as f:
@@ -169,7 +169,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 self.log(f"加载排除标题文件失败: {e}")
         else:
             self.log(f"排除标题文件不存在: {chigua_path}")
-            
+
         return excluded_titles
 
     def _is_title_excluded(self, title):
@@ -243,7 +243,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         # 对URL列表进行去重处理
         unique_urls = self._deduplicate_urls(m3u8_urls, title)
-        
+
         if not unique_urls:
             self.log(f"❌ 所有URL都已处理过或重复，跳过: {title}")
             return item
@@ -277,7 +277,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
             # URL标准化
             normalized_url = url.strip()
-            
+
             # 第一步：完全相同的URL去重
             if normalized_url in seen_urls:
                 self.log(f"🔄 发现完全重复的URL，跳过: {normalized_url[:100]}...")
@@ -341,11 +341,11 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
             # 生成唯一的文件名（防止多个URL下载到同一文件）
             safe_filename = self.sanitize_filename(title)
-            
+
             # 如果有多个URL，需要添加序号
             url_hash = self._get_url_hash(m3u8_url)
             final_filename = f"{safe_filename}_{url_hash}"
-            
+
             output_file = os.path.join(self.download_path, f"{final_filename}.mp4")
 
             # 检查文件是否已存在
@@ -358,9 +358,9 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 return False
 
             # 提交下载任务到线程池
-            future = self.download_executor.submit(self.download_m3u8, 
-                                        {'m3u8_url': m3u8_url, 'title': title, 'site': site}, 
-                                        output_file)
+            future = self.download_executor.submit(self.download_m3u8,
+                                                   {'m3u8_url': m3u8_url, 'title': title, 'site': site},
+                                                   output_file)
             self.download_tasks.append(future)
 
             self.log(f"✅ 已添加到下载队列: {title} -> {m3u8_url[:100]}...")
@@ -387,7 +387,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
         增强版本，提取更多特征
         """
         import re
-        
+
         # 方法1：提取长的字母数字组合
         matches = re.findall(r'[a-zA-Z0-9]{8,}', url)
         if matches:
@@ -534,7 +534,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 self.log(f"🚀 开始新下载 (线程数: {self.max_threads}): {title}")
 
             # 执行命令并捕获输出（兼容Python 3.6及以下版本）
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=3600)  # 1小时超时
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                                    timeout=3600)  # 1小时超时
 
             if result.returncode == 0:
                 # 检查文件是否真的下载完成（文件大小大于0）
@@ -709,19 +710,19 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         try:
             chigua_path = os.path.join(os.path.dirname(__file__), 'utils', '51chigua.txt')
-            
+
             # 确保目录存在
             os.makedirs(os.path.dirname(chigua_path), exist_ok=True)
-            
+
             # 追加标题到文件（不包含.mp4后缀）
             with open(chigua_path, 'a', encoding='utf-8') as f:
                 f.write(f"\n{title}")
-            
+
             # 同时添加到内存中的排除集合，避免重复下载
             self.excluded_titles.add(title)
-            
+
             self.log(f"✅ 已将标题 '{title}' 追加到排除列表文件: {chigua_path}")
-            
+
         except Exception as e:
             self.log(f"❌ 追加标题到排除列表失败: {title}, 错误: {e}")
 
