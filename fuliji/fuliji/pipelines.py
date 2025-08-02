@@ -346,7 +346,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
             url_hash = self._get_url_hash(m3u8_url)
             final_filename = f"{safe_filename}_{url_hash}"
 
-            output_file = os.path.join(self.download_path, f"{final_filename}.mp4")
+            output_file = os.path.join(self.videos_store, f"{final_filename}.mp4")
 
             # 检查文件是否已存在
             if os.path.exists(output_file):
@@ -357,10 +357,16 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 self.db.mark_as_downloaded(m3u8_url, output_file, "already_exists")
                 return False
 
-            # 提交下载任务到线程池
-            future = self.download_executor.submit(self.download_m3u8,
-                                                   {'m3u8_url': m3u8_url, 'title': title, 'site': site},
-                                                   output_file)
+            # 使用临时文件进行下载
+            temp_file = f"{output_file}.tmp"
+            
+            # 记录下载开始到数据库
+            self.db.add_download_record(m3u8_url, title, item.get('site', 'unknown'), temp_file)
+            
+            # 调用实际的下载方法
+            future = self.download_executor.submit(self.download_m3u8, {'m3u8_url': m3u8_url, 'title': title, 'site': site}, temp_file)
+            # 添加回调函数
+            future.add_done_callback(lambda f: self._download_completed(f, m3u8_url, title))
             self.download_tasks.append(future)
 
             self.log(f"✅ 已添加到下载队列: {title} -> {m3u8_url[:100]}...")
@@ -412,6 +418,29 @@ class M3U8Pipeline(PipelineLoggerMixin):
         # 方法4：如果都没找到，返回URL的哈希值
         import hashlib
         return hashlib.md5(url.encode()).hexdigest()[:16]
+
+    def _is_similar_url(self, url):
+        """
+        检查一个URL是否与已处理的URL相似
+        返回 (是否相似, 相似的URL)
+        """
+        # 提取当前URL的关键标识
+        url_key = self._extract_url_key(url)
+        # 遍历已处理的URL，检查是否有相似的
+        for processed_url in self.processed_urls:
+            # 如果是完全相同的URL，跳过（这应该已经在之前的检查中被过滤掉）
+            if url == processed_url:
+                continue
+            # 提取已处理URL的关键标识
+            processed_key = self._extract_url_key(processed_url)
+            
+            # 如果关键标识相同，则认为URL相似
+            if url_key == processed_key:
+                self.log(f"发现相似URL: 新URL: {url[:50]}..., 已处理URL: {processed_url[:50]}...")
+                return True, processed_url
+                
+        # 没有找到相似URL
+        return False, None
 
     def _monitor_downloads(self):
         """
