@@ -442,6 +442,74 @@ class M3U8Pipeline(PipelineLoggerMixin):
         # 没有找到相似URL
         return False, None
 
+    def sanitize_filename(self, filename):
+        """
+        清理文件名，移除或替换不合法字符
+        这个方法与 clean_filename 功能相同，为了保持兼容性而添加
+        """
+        return self.clean_filename(filename)
+
+    def download_m3u8(self, item, output_file):
+        """
+        下载 M3U8 视频文件的主要方法
+        这个方法会被线程池调用
+        """
+        title = item.get('title', 'Unknown')
+        m3u8_url = item['m3u8_url']
+        
+        try:
+            with self.lock:
+                self.active_downloads += 1
+                
+            self.log(f"🚀 开始下载视频: {title}")
+            
+            # 确保输出目录存在
+            output_dir = os.path.dirname(output_file)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                self.log(f"创建输出目录: {output_dir}")
+            
+            # 使用临时文件进行下载
+            temp_file = f"{output_file}.tmp"
+            
+            # 记录下载开始到数据库
+            self.db.add_download_record(m3u8_url, title, item.get('site', 'unknown'), temp_file)
+            
+            # 调用实际的下载方法
+            success = self.download_m3u8_with_resume(m3u8_url, temp_file, title, resume=False)
+            
+            if success:
+                # 下载成功，移动临时文件到最终位置
+                if os.path.exists(temp_file):
+                    shutil.move(temp_file, output_file)
+                    file_size = os.path.getsize(output_file)
+                    
+                    # 更新数据库记录
+                    self.db.update_download_status(m3u8_url, 'completed', output_file, file_size)
+                    
+                    # 添加到排除列表
+                    self._append_to_excluded_list(title)
+                    
+                    self.log(f"✅ 视频下载完成: {title}")
+                    return {'success': True, 'title': title, 'file_path': output_file}
+                else:
+                    self.log(f"❌ 临时文件不存在: {title}")
+                    self.db.update_download_status(m3u8_url, 'failed')
+                    return {'success': False, 'title': title, 'error': '临时文件不存在'}
+            else:
+                # 下载失败
+                self.db.update_download_status(m3u8_url, 'failed')
+                self.log(f"❌ 视频下载失败: {title}")
+                return {'success': False, 'title': title, 'error': 'ffmpeg下载失败'}
+                
+        except Exception as e:
+            self.log(f"❌ 下载过程中出现异常: {title}, 错误: {e}")
+            self.db.update_download_status(m3u8_url, 'error')
+            return {'success': False, 'title': title, 'error': str(e)}
+        finally:
+            with self.lock:
+                self.active_downloads -= 1
+
     def _monitor_downloads(self):
         """
         监控线程，检查并显示下载进度
