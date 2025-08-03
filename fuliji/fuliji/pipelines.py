@@ -123,10 +123,11 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         # 下载进度统计
         self.download_stats = {
-            'total_processed': 0,       # 总处理数量
+            'total_received': 0,        # 总接收数量（接收到的item数量）
             'download_success': 0,      # 下载成功数量
             'download_failed': 0,       # 下载失败数量
             'skipped_duplicate': 0,     # 跳过的重复项
+            'queued_downloads': 0,      # 排队中的下载任务
             'start_time': time.time(),  # 开始时间
         }
         
@@ -161,12 +162,16 @@ class M3U8Pipeline(PipelineLoggerMixin):
         m3u8_url = item['m3u8_url']
         title = item.get('title', 'Unknown')
 
-        self.log(f"🎯 M3U8Pipeline接收到item: {title}")
+        with self.lock:
+            self.download_stats['total_received'] += 1
+
+        self.log(f"🎯 M3U8Pipeline接收到item [{self.download_stats['total_received']}]: {title}")
 
         # 第一重去重：检查URL是否已经处理过
         if m3u8_url in self.processed_urls:
             self.log(f"🔄 URL '{m3u8_url}' 已处理过，跳过重复下载")
-            self.download_stats['skipped_duplicate'] += 1
+            with self.lock:
+                self.download_stats['skipped_duplicate'] += 1
             return item
 
         # 第二重去重：检查URL是否在已下载URL列表中
@@ -174,7 +179,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
             self.log(f"❌ URL '{m3u8_url}' 已下载过，跳过下载")
             # 添加到已处理集合
             self.processed_urls.add(m3u8_url)
-            self.download_stats['skipped_duplicate'] += 1
+            with self.lock:
+                self.download_stats['skipped_duplicate'] += 1
             return item
 
         # 第三重去重：检查标题是否在排除列表中（已下载过）
@@ -182,24 +188,34 @@ class M3U8Pipeline(PipelineLoggerMixin):
             self.log(f"❌ 视频 '{title}' 已下载过，跳过下载")
             # 添加到已处理集合
             self.processed_urls.add(m3u8_url)
-            self.download_stats['skipped_duplicate'] += 1
+            with self.lock:
+                self.download_stats['skipped_duplicate'] += 1
             return item
 
         # 检查是否正在下载
         with self.lock:
             if m3u8_url in self.downloading_urls:
                 self.log(f"⏳ 视频 '{title}' 正在下载中，跳过重复下载")
+                self.download_stats['skipped_duplicate'] += 1
                 return item
             
             # 添加到下载集合和已处理集合
             self.downloading_urls.add(m3u8_url)
             self.processed_urls.add(m3u8_url)
+            
+            # 记录当前下载信息
+            self.current_downloads[m3u8_url] = {
+                'title': title,
+                'start_time': time.time()
+            }
+
+            # 更新排队中的下载任务数量
+            self.download_stats['queued_downloads'] += 1
 
         # 提交下载任务到线程池
-        self.log(f"🚀 提交下载任务: {title}")
+        self.log(f"🚀 提交下载任务 [排队: {self.download_stats['queued_downloads']}, 活动: {len(self.current_downloads)}/{self.max_concurrent_downloads}]: {title}")
         future = self.download_executor.submit(self._download_video, item)
         future.add_done_callback(lambda f: self._download_completed(f, m3u8_url, title))
-        self.download_stats['total_processed'] += 1
 
         return item
 
@@ -213,6 +229,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
         try:
             with self.lock:
                 self.active_downloads += 1
+                self.download_stats['queued_downloads'] -= 1
 
             self.log(f"🚀 开始下载视频: {title}")
 
@@ -300,21 +317,34 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         try:
             result = future.result()
-            if result['success']:
-                self.log(f"✅ M3U8视频下载成功: {title}")
-                # 记录URL到已下载URL列表
-                self._append_to_excluded_urls(m3u8_url)
-                self.download_stats['download_success'] += 1
-            else:
-                self.log(f"❌ M3U8视频下载失败: {title}")
-                self.download_stats['download_failed'] += 1
+            
+            # 计算下载耗时
+            download_time = 0
+            if m3u8_url in self.current_downloads:
+                download_time = time.time() - self.current_downloads[m3u8_url]['start_time']
+            
+            with self.lock:
+                # 减少排队中的任务数量
+                self.download_stats['queued_downloads'] -= 1
+                
+                if result['success']:
+                    self.download_stats['download_success'] += 1
+                    self.log(f"✅ M3U8视频下载成功: {title} (耗时: {download_time:.1f}秒)")
+                    # 记录URL到已下载URL列表
+                    self._append_to_excluded_urls(m3u8_url)
+                else:
+                    self.download_stats['download_failed'] += 1
+                    self.log(f"❌ M3U8视频下载失败: {title} (耗时: {download_time:.1f}秒)")
         except Exception as e:
+            with self.lock:
+                self.download_stats['queued_downloads'] -= 1
+                self.download_stats['download_failed'] += 1
             self.log(f"下载回调处理失败: {title}, 错误: {e}")
-            self.download_stats['download_failed'] += 1
         finally:
             # 从下载集合中移除
             with self.lock:
                 self.downloading_urls.discard(m3u8_url)
+                self.current_downloads.pop(m3u8_url, None)
 
     def _load_excluded_titles(self):
         """
@@ -471,9 +501,13 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         self.log("🔄 爬虫即将关闭，等待所有M3U8下载任务完成...")
 
+        # 显示关闭时的进度报告
+        self._show_progress_report()
+
         with self.lock:
             if self.active_downloads == 0:
                 self.log("✅ 没有活动的下载任务，直接关闭爬虫")
+                self._show_final_statistics()
                 self._cleanup_resources()
                 return
 
@@ -483,10 +517,45 @@ class M3U8Pipeline(PipelineLoggerMixin):
         start_time = time.time()
         while self.active_downloads > 0 and (time.time() - start_time) < 7200:
             time.sleep(5)
-            self.log(f"当前正在进行的下载任务: {self.active_downloads}")
+            # 每30秒显示一次等待状态
+            if int(time.time() - start_time) % 30 == 0:
+                self.log(f"⏳ 仍在等待 {self.active_downloads} 个下载任务完成... (已等待 {int(time.time() - start_time)}秒)")
 
+        # 显示最终统计
+        self._show_final_statistics()
         self._cleanup_resources()
         self.log("🎉 所有M3U8下载任务已完成，爬虫可以安全关闭")
+
+    def _show_final_statistics(self):
+        """
+        显示最终的下载统计报告
+        """
+        stats = self._get_download_statistics()
+        runtime = time.time() - stats['start_time']
+        hours, remainder = divmod(runtime, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        runtime_str = f"{int(hours)}h{int(minutes)}m{int(seconds)}s"
+        
+        total_attempts = stats['download_success'] + stats['download_failed']
+        success_rate = (stats['download_success'] / total_attempts * 100) if total_attempts > 0 else 0
+        
+        # 计算平均下载速度
+        avg_speed = stats['download_success'] / (runtime / 60) if runtime > 0 else 0  # 每分钟成功下载数
+        
+        self.log("🎊" * 40)
+        self.log("🏁 M3U8下载管道最终统计报告")
+        self.log("🎊" * 40)
+        self.log(f"⏱️  总运行时间: {runtime_str}")
+        self.log(f"📊 处理统计:")
+        self.log(f"   📋 总接收数量: {stats['total_received']}")
+        self.log(f"   ✅ 下载成功: {stats['download_success']}")
+        self.log(f"   ❌ 下载失败: {stats['download_failed']}")
+        self.log(f"   🔄 跳过重复: {stats['skipped_duplicate']}")
+        self.log(f"   ⏳ 剩余排队: {stats['queued_downloads']}")
+        self.log(f"📈 成功率: {success_rate:.1f}%")
+        self.log(f"⚡ 平均速度: {avg_speed:.1f} 视频/分钟")
+        self.log(f"📁 存储位置: {self.videos_store}")
+        self.log("🎊" * 40)
 
     def _cleanup_resources(self):
         """
@@ -529,10 +598,11 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         显示详细的进度报告
         """
+        # 使用_get_download_statistics函数获取统计信息
+        stats = self._get_download_statistics()
+        
         with self.lock:
-            stats = self.download_stats.copy()
             current_downloads_info = self.current_downloads.copy()
-            active_count = self.active_downloads
         
         # 计算运行时间
         runtime = time.time() - stats['start_time']
@@ -547,8 +617,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
         # 显示总体统计
         self.log("=" * 80)
         self.log(f"📊 下载进度报告 - 运行时间: {runtime_str}")
-        self.log(f"📋 总处理: {stats['total_processed']} | ✅ 成功: {stats['download_success']} | ❌ 失败: {stats['download_failed']} | 🔄 跳过: {stats['skipped_duplicate']}")
-        self.log(f"📈 成功率: {success_rate:.1f}% | 🏃 活动下载: {active_count}/{self.max_concurrent_downloads}")
+        self.log(f"📋 总接收: {stats['total_received']} | ✅ 成功: {stats['download_success']} | ❌ 失败: {stats['download_failed']} | 🔄 跳过: {stats['skipped_duplicate']} | ⏳ 排队: {stats['queued_downloads']}")
+        self.log(f"📈 成功率: {success_rate:.1f}% | 🏃 活动下载: {stats['active_downloads']}/{self.max_concurrent_downloads}")
         
         # 显示当前正在下载的视频
         if current_downloads_info:
