@@ -126,14 +126,14 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         # 下载进度统计
         self.download_stats = {
-            'total_received': 0,        # 总接收数量（接收到的item数量）
-            'download_success': 0,      # 下载成功数量
-            'download_failed': 0,       # 下载失败数量
-            'skipped_duplicate': 0,     # 跳过的重复项
-            'queued_downloads': 0,      # 排队中的下载任务
+            'total_received': 0,  # 总接收数量（接收到的item数量）
+            'download_success': 0,  # 下载成功数量
+            'download_failed': 0,  # 下载失败数量
+            'skipped_duplicate': 0,  # 跳过的重复项
+            'queued_downloads': 0,  # 排队中的下载任务
             'start_time': time.time(),  # 开始时间
         }
-        
+
         # 当前正在下载的视频信息 {url: {'title': title, 'start_time': time}}
         self.current_downloads = {}
 
@@ -142,7 +142,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
         # 初始化已下载URL列表
         self.excluded_urls = self._load_excluded_urls()
 
-        self.log(f"M3U8Pipeline初始化完成 - 最大并行下载数: {self.max_concurrent_downloads}, FFmpeg线程数: {self.max_threads}")
+        self.log(
+            f"M3U8Pipeline初始化完成 - 最大并行下载数: {self.max_concurrent_downloads}, FFmpeg线程数: {self.max_threads}")
         self.log(f"视频存储目录: {self.videos_store}")
         self.log(f"临时文件目录: {self.temp_store}")
         self.log(f"已加载排除标题数量: {len(self.excluded_titles)}")
@@ -201,22 +202,17 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 self.log(f"⏳ 视频 '{title}' 正在下载中，跳过重复下载")
                 self.download_stats['skipped_duplicate'] += 1
                 return item
-            
+
             # 添加到下载集合和已处理集合
             self.downloading_urls.add(m3u8_url)
             self.processed_urls.add(m3u8_url)
-            
-            # 记录当前下载信息
-            self.current_downloads[m3u8_url] = {
-                'title': title,
-                'start_time': time.time()
-            }
 
             # 更新排队中的下载任务数量
             self.download_stats['queued_downloads'] += 1
 
         # 提交下载任务到线程池
-        self.log(f"🚀 提交下载任务 [排队: {self.download_stats['queued_downloads']}, 活动: {len(self.current_downloads)}/{self.max_concurrent_downloads}]: {title}")
+        self.log(
+            f"🚀 提交下载任务 [排队: {self.download_stats['queued_downloads']}, 活动: {len(self.current_downloads)}/{self.max_concurrent_downloads}]: {title}")
         future = self.download_executor.submit(self._download_video, item)
         future.add_done_callback(lambda f: self._download_completed(f, m3u8_url, title))
 
@@ -236,6 +232,11 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
             self.log(f"🚀 开始下载视频: {title}")
 
+            # 记录当前下载信息
+            self.current_downloads[m3u8_url] = {
+                'title': title,
+                'start_time': time.time()
+            }
             # 获取输出目录和文件路径
             dir_path = self.get_directory_path(item)
             if not os.path.exists(dir_path):
@@ -251,12 +252,12 @@ class M3U8Pipeline(PipelineLoggerMixin):
             if success and os.path.exists(temp_file):
                 # 移动临时文件到最终位置
                 shutil.move(temp_file, final_file)
-                
+
                 # 记录标题到已下载列表
                 self._append_to_excluded_list(title)
                 # 记录URL到已下载列表
                 self._append_to_excluded_urls(m3u8_url)
-                
+
                 self.log(f"✅ 视频下载完成: {title}")
                 return {'success': True, 'title': title, 'file_path': final_file}
             else:
@@ -320,16 +321,16 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         try:
             result = future.result()
-            
+
             # 计算下载耗时
             download_time = 0
             if m3u8_url in self.current_downloads:
                 download_time = time.time() - self.current_downloads[m3u8_url]['start_time']
-            
+
             with self.lock:
                 # 减少排队中的任务数量
                 self.download_stats['queued_downloads'] -= 1
-                
+
                 if result['success']:
                     self.download_stats['download_success'] += 1
                     self.log(f"✅ M3U8视频下载成功: {title} (耗时: {download_time:.1f}秒)")
@@ -522,7 +523,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
             time.sleep(5)
             # 每30秒显示一次等待状态
             if int(time.time() - start_time) % 30 == 0:
-                self.log(f"⏳ 仍在等待 {self.active_downloads} 个下载任务完成... (已等待 {int(time.time() - start_time)}秒)")
+                self.log(
+                    f"⏳ 仍在等待 {self.active_downloads} 个下载任务完成... (已等待 {int(time.time() - start_time)}秒)")
 
         # 显示最终统计
         self._show_final_statistics()
@@ -538,13 +540,13 @@ class M3U8Pipeline(PipelineLoggerMixin):
         hours, remainder = divmod(runtime, 3600)
         minutes, seconds = divmod(remainder, 60)
         runtime_str = f"{int(hours)}h{int(minutes)}m{int(seconds)}s"
-        
+
         total_attempts = stats['download_success'] + stats['download_failed']
         success_rate = (stats['download_success'] / total_attempts * 100) if total_attempts > 0 else 0
-        
+
         # 计算平均下载速度
         avg_speed = stats['download_success'] / (runtime / 60) if runtime > 0 else 0  # 每分钟成功下载数
-        
+
         self.log("🎊" * 40)
         self.log("🏁 M3U8下载管道最终统计报告")
         self.log("🎊" * 40)
@@ -579,21 +581,21 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         last_report_time = time.time()
         report_interval = 30  # 每30秒报告一次进度
-        
+
         while True:
             try:
                 time.sleep(5)  # 每5秒检查一次
                 current_time = time.time()
-                
+
                 # 每30秒或有活动下载时显示详细进度
                 if (current_time - last_report_time) >= report_interval or self.active_downloads > 0:
                     self._show_progress_report()
                     last_report_time = current_time
-                    
+
                 # 如果没有活动下载，延长检查间隔
                 if self.active_downloads == 0:
                     time.sleep(25)  # 总共30秒间隔
-                    
+
             except Exception as e:
                 self.log(f"进度监控异常: {e}")
 
@@ -603,26 +605,28 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         # 使用_get_download_statistics函数获取统计信息
         stats = self._get_download_statistics()
-        
+
         with self.lock:
             current_downloads_info = self.current_downloads.copy()
-        
+
         # 计算运行时间
         runtime = time.time() - stats['start_time']
         hours, remainder = divmod(runtime, 3600)
         minutes, seconds = divmod(remainder, 60)
         runtime_str = f"{int(hours)}h{int(minutes)}m{int(seconds)}s"
-        
+
         # 计算成功率
         total_attempts = stats['download_success'] + stats['download_failed']
         success_rate = (stats['download_success'] / total_attempts * 100) if total_attempts > 0 else 0
-        
+
         # 显示总体统计
         self.log("=" * 80)
         self.log(f"📊 下载进度报告 - 运行时间: {runtime_str}")
-        self.log(f"📋 总接收: {stats['total_received']} | ✅ 成功: {stats['download_success']} | ❌ 失败: {stats['download_failed']} | 🔄 跳过: {stats['skipped_duplicate']} | ⏳ 排队: {stats['queued_downloads']}")
-        self.log(f"📈 成功率: {success_rate:.1f}% | 🏃 活动下载: {stats['active_downloads']}/{self.max_concurrent_downloads}")
-        
+        self.log(
+            f"📋 总接收: {stats['total_received']} | ✅ 成功: {stats['download_success']} | ❌ 失败: {stats['download_failed']} | 🔄 跳过: {stats['skipped_duplicate']} | ⏳ 排队: {stats['queued_downloads']}")
+        self.log(
+            f"📈 成功率: {success_rate:.1f}% | 🏃 活动下载: {stats['active_downloads']}/{self.max_concurrent_downloads}")
+
         # 显示当前正在下载的视频
         if current_downloads_info:
             self.log("🎬 当前下载中:")
@@ -631,7 +635,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 self.log(f"   {i}. {info['title']} (已进行 {download_time:.0f}秒)")
         else:
             self.log("😴 当前无下载任务")
-        
+
         self.log("=" * 80)
 
     def _get_download_statistics(self):
@@ -642,7 +646,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
             stats = self.download_stats.copy()
             stats['active_downloads'] = self.active_downloads
             stats['current_downloads'] = len(self.current_downloads)
-            
+
         return stats
 
     def _cleanup_temp_files(self):
