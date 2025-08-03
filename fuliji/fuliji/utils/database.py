@@ -84,7 +84,7 @@ class DownloadDatabase:
     def is_downloaded(self, url):
         """检查URL是否已经下载过（无论状态如何）"""
         url_hash = self.get_url_hash(url)
-        
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -92,10 +92,10 @@ class DownloadDatabase:
                     SELECT COUNT(*) as count FROM downloads 
                     WHERE url_hash = ?
                 ''', (url_hash,))
-                
+
                 result = cursor.fetchone()
                 return result['count'] > 0
-                
+
         except Exception as e:
             logging.error(f"检查URL是否已下载失败: {e}")
             return False
@@ -103,7 +103,7 @@ class DownloadDatabase:
     def mark_as_downloaded(self, url, file_path, status='completed'):
         """标记URL为已下载"""
         url_hash = self.get_url_hash(url)
-        
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -112,11 +112,11 @@ class DownloadDatabase:
                     (url_hash, url, title, file_path, status, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ''', (url_hash, url, 'Unknown', file_path, status))
-                
+
                 conn.commit()
                 logging.info(f"标记URL为已下载: {url[:50]}...")
                 return True
-                
+
         except Exception as e:
             logging.error(f"标记URL为已下载失败: {e}")
             return False
