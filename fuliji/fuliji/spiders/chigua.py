@@ -2,7 +2,6 @@
 # -*-coding:utf-8 -*-
 import json
 import logging
-import re
 
 import scrapy
 from scrapy import Request, Selector
@@ -48,16 +47,13 @@ class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
 
     def parse_details(self, response):
         """
-        解析详情页面，提取m3u8链接并进行预去重处理
+        解析详情页面，提取m3u8链接并直接yield给pipeline处理
         """
         item = response.meta['item']
 
-        # 存储所有找到的视频链接
-        all_video_urls = []
-        m3u8_urls = []
-
         # 提取视频配置数据
         src_links = response.xpath("//div[@class='dplayer']/@data-config").extract()
+        m3u8_found = False
 
         if src_links:
             for src in src_links:
@@ -66,38 +62,56 @@ class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
                     video_url = config_data.get('video', {}).get('url', '')
 
                     if video_url:
-                        all_video_urls.append(video_url)
                         # 检查是否为m3u8格式的视频
                         if video_url.endswith('.m3u8') or 'm3u8' in video_url:
-                            m3u8_urls.append(video_url)
-                            self.log(f"✅ 找到M3U8视频链接: {video_url}", logging.INFO)
+                            logging.info(f"✅ 找到M3U8视频链接: {video_url}")
+                            item['m3u8_url'] = video_url
+                            m3u8_found = True
+
+                            # 直接yield给pipeline处理
+                            logging.info(f"🎯 准备发送item到pipeline: {item['title']}")
+                            yield item
+                            break  # 找到m3u8链接后直接跳出循环
+
                         else:
-                            self.log(f"找到其他格式视频链接: {video_url}", logging.INFO)
+                            # 如果不是m3u8格式，但仍然是视频链接
+                            logging.info(f"找到其他格式视频链接: {video_url}")
+                            if 'm3u8_url' not in item:
+                                item['m3u8_url'] = []
+                            item['m3u8_url'].append(video_url)
+                            yield item
 
                 except json.JSONDecodeError as e:
-                    self.log(f"解析视频配置JSON失败: {e}", logging.ERROR)
+                    logging.error(f"解析视频配置JSON失败: {e}")
                     continue
 
-        # 如果没找到配置数据，尝试其他方式
-        if not all_video_urls:
-            self.log("页面上未找到视频配置数据，尝试其他方式...", logging.INFO)
+        if not m3u8_found:
+            logging.info("页面上未找到视频配置数据，尝试其他方式...")
 
             # 尝试其他可能的视频链接提取方式
             # 查找可能的m3u8链接
             m3u8_links = response.xpath("//source[@src[contains(., '.m3u8')]]/@src").extract()
             if not m3u8_links:
                 # 在脚本或其他地方查找m3u8链接
-                m3u8_links = re.findall(r'["\']([^"\']*\.m3u8[^"\']*)["\']', response.text)
+                m3u8_links = response.re(r'["\']([^"\']*\.m3u8[^"\']*)["\']')
 
-            for m3u8_link in m3u8_links:
-                # 确保URL是完整的
-                if m3u8_link.startswith('http'):
-                    video_url = m3u8_link
-                else:
-                    video_url = response.urljoin(m3u8_link)
+            if m3u8_links:
+                for m3u8_link in m3u8_links:
+                    # 确保URL是完整的
+                    if m3u8_link.startswith('http'):
+                        video_url = m3u8_link
+                    else:
+                        video_url = response.urljoin(m3u8_link)
 
-                m3u8_urls.append(video_url)
-                self.log(f"✅ 通过其他方式找到M3U8链接: {video_url}", logging.INFO)
+                    logging.info(f"✅ 通过其他方式找到M3U8链接: {video_url}")
+                    item['m3u8_url'] = video_url
+
+                    # 直接yield给pipeline处理
+                    logging.info(f"🎯 准备发送item到pipeline: {item['title']}")
+                    yield item
+                    break  # 只取第一个有效的m3u8链接
+            else:
+                logging.warning(f"❌ 未找到任何视频链接: {item['title']}")
 
     def closed(self, reason):
         self.log(f"爬虫关闭，原因: {reason}", logging.INFO)
