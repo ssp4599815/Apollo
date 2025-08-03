@@ -106,6 +106,9 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 os.makedirs(directory)
                 self.log(f"创建目录: {directory}")
 
+        # 启动前清理临时文件
+        self._cleanup_temp_files()
+
         # 创建线程池用于并行下载
         self.download_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=self.max_concurrent_downloads,
@@ -641,3 +644,17 @@ class M3U8Pipeline(PipelineLoggerMixin):
             stats['current_downloads'] = len(self.current_downloads)
             
         return stats
+
+    def _cleanup_temp_files(self):
+        """
+        清理临时文件目录中的文件
+        """
+        try:
+            for root, dirs, files in os.walk(self.temp_store):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    os.remove(file_path)
+                    self.log(f"删除临时文件: {file_path}")
+            self.log("临时文件清理完成")
+        except Exception as e:
+            self.log(f"清理临时文件时出错: {e}")
