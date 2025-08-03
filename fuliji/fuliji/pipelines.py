@@ -3,11 +3,11 @@
 import concurrent.futures
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
 import time
-import re
 
 import scrapy
 from scrapy.exceptions import DropItem
@@ -81,7 +81,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
     1. 多线程下载
     2. 临时文件管理  
     3. 下载前检查是否已下载
-    4. 下载完成后记录到 51chigua.txt
+    4. 下载完成后记录到 m3u8_urls.txt
     """
 
     def __init__(self):
@@ -113,6 +113,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         # 正在下载的视频URL集合
         self.downloading_urls = set()
+        # 已处理的视频URL集合（用于URL级别去重）
+        self.processed_urls = set()
         # 活动下载任务计数器
         self.active_downloads = 0
         # 线程锁
@@ -120,15 +122,18 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         # 初始化排除标题列表
         self.excluded_titles = self._load_excluded_titles()
+        # 初始化已下载URL列表
+        self.excluded_urls = self._load_excluded_urls()
 
         self.log(f"M3U8Pipeline初始化完成 - 最大并行下载数: {self.max_concurrent_downloads}, FFmpeg线程数: {self.max_threads}")
         self.log(f"视频存储目录: {self.videos_store}")
         self.log(f"临时文件目录: {self.temp_store}")
         self.log(f"已加载排除标题数量: {len(self.excluded_titles)}")
+        self.log(f"已加载排除URL数量: {len(self.excluded_urls)}")
 
     def process_item(self, item, spider):
         """
-        处理每个包含m3u8_url的item
+        处理每个包含m3u8_url的item，支持URL和标题双重去重
         """
         # 检查item是否包含m3u8_url字段
         if 'm3u8_url' not in item:
@@ -140,9 +145,23 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         self.log(f"🎯 M3U8Pipeline接收到item: {title}")
 
-        # 检查是否在排除列表中（已下载过）
+        # 第一重去重：检查URL是否已经处理过
+        if m3u8_url in self.processed_urls:
+            self.log(f"🔄 URL '{m3u8_url}' 已处理过，跳过重复下载")
+            return item
+
+        # 第二重去重：检查URL是否在已下载URL列表中
+        if self._is_url_excluded(m3u8_url):
+            self.log(f"❌ URL '{m3u8_url}' 已下载过，跳过下载")
+            # 添加到已处理集合
+            self.processed_urls.add(m3u8_url)
+            return item
+
+        # 第三重去重：检查标题是否在排除列表中（已下载过）
         if self._is_title_excluded(title):
             self.log(f"❌ 视频 '{title}' 已下载过，跳过下载")
+            # 添加到已处理集合
+            self.processed_urls.add(m3u8_url)
             return item
 
         # 检查是否正在下载
@@ -151,8 +170,9 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 self.log(f"⏳ 视频 '{title}' 正在下载中，跳过重复下载")
                 return item
             
-            # 添加到下载集合
+            # 添加到下载集合和已处理集合
             self.downloading_urls.add(m3u8_url)
+            self.processed_urls.add(m3u8_url)
 
         # 提交下载任务到线程池
         self.log(f"🚀 提交下载任务: {title}")
@@ -190,8 +210,10 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 # 移动临时文件到最终位置
                 shutil.move(temp_file, final_file)
                 
-                # 记录到已下载列表
+                # 记录标题到已下载列表
                 self._append_to_excluded_list(title)
+                # 记录URL到已下载列表
+                self._append_to_excluded_urls(m3u8_url)
                 
                 self.log(f"✅ 视频下载完成: {title}")
                 return {'success': True, 'title': title, 'file_path': final_file}
@@ -227,8 +249,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
             self.log(f"🚀 开始ffmpeg下载 (线程数: {self.max_threads}): {title}")
 
             # 执行命令
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-                                  universal_newlines=True, timeout=3600)  # 1小时超时
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    universal_newlines=True, timeout=3600)  # 1小时超时
 
             if result.returncode == 0:
                 # 检查文件是否真的下载完成
@@ -258,6 +280,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
             result = future.result()
             if result['success']:
                 self.log(f"✅ M3U8视频下载成功: {title}")
+                # 记录URL到已下载URL列表
+                self._append_to_excluded_urls(m3u8_url)
             else:
                 self.log(f"❌ M3U8视频下载失败: {title}")
         except Exception as e:
@@ -289,11 +313,44 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         return excluded_titles
 
+    def _load_excluded_urls(self):
+        """
+        加载已下载过的URL列表
+        """
+        excluded_urls = set()
+        urls_path = os.path.join(os.path.dirname(__file__), 'utils', 'm3u8_urls.txt')
+
+        if os.path.exists(urls_path):
+            try:
+                with open(urls_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):  # 跳过空行和注释
+                            excluded_urls.add(line)
+                self.log(f"成功从 {urls_path} 加载 {len(excluded_urls)} 个排除URL")
+            except Exception as e:
+                self.log(f"加载排除URL文件失败: {e}")
+        else:
+            self.log(f"排除URL文件不存在: {urls_path}，将创建新文件")
+            # 确保目录存在
+            os.makedirs(os.path.dirname(urls_path), exist_ok=True)
+            # 创建空文件
+            with open(urls_path, 'w', encoding='utf-8') as f:
+                f.write("# 已下载的M3U8视频URL列表\n")
+
+        return excluded_urls
+
     def _is_title_excluded(self, title):
         """
         检查标题是否在排除列表中
         """
         return title in self.excluded_titles
+
+    def _is_url_excluded(self, url):
+        """
+        检查URL是否在排除列表中
+        """
+        return url in self.excluded_urls
 
     def _append_to_excluded_list(self, title):
         """
@@ -316,6 +373,28 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         except Exception as e:
             self.log(f"❌ 追加标题到排除列表失败: {title}, 错误: {e}")
+
+    def _append_to_excluded_urls(self, url):
+        """
+        将成功下载的视频URL追加到排除列表文件中
+        """
+        try:
+            urls_path = os.path.join(os.path.dirname(__file__), 'utils', 'm3u8_urls.txt')
+
+            # 确保目录存在
+            os.makedirs(os.path.dirname(urls_path), exist_ok=True)
+
+            # 追加URL到文件
+            with open(urls_path, 'a', encoding='utf-8') as f:
+                f.write(f"{url}\n")
+
+            # 同时添加到内存中的排除集合
+            self.excluded_urls.add(url)
+
+            self.log(f"✅ 已将URL追加到排除列表文件")
+
+        except Exception as e:
+            self.log(f"❌ 追加URL到排除列表失败: {url}, 错误: {e}")
 
     def _get_temp_file_path(self, title):
         """
@@ -340,18 +419,18 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         # 定义不合法字符
         illegal_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*']
-        
+
         cleaned = filename
         for char in illegal_chars:
             cleaned = cleaned.replace(char, '_')
-        
+
         # 移除首尾空格和点
         cleaned = cleaned.strip(' .')
-        
+
         # 限制文件名长度
         if len(cleaned) > 100:
             cleaned = cleaned[:100]
-        
+
         return cleaned
 
     def get_directory_path(self, item):
