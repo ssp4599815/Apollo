@@ -89,7 +89,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
     def __init__(self):
         # 设置pipeline专属日志
         self.setup_pipeline_logger('m3u8')
-        
+
         self.settings = get_project_settings()
         self.videos_store = self.settings.get('VIDEOS_STORE', 'videos')
 
@@ -121,6 +121,12 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         # 正在下载的视频URL集合
         self.downloading_urls = set()
+        # 已处理的视频URL集合
+        self.processed_urls = set()
+        # 正在下载的视频标题集合
+        self.downloading_titles = set()
+        # 已处理的视频标题集合
+        self.processed_titles = set()
         # 活动下载任务计数器
         self.active_downloads = 0
         # 活动下载任务条件变量（用于等待所有下载完成）
@@ -129,7 +135,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
         self.lock = threading.RLock()
         # 是否已通知爬虫结束
         self.shutdown_notified = False
-        
+
         # 初始化排除标题列表
         self.excluded_titles = self._load_excluded_titles()
 
@@ -143,14 +149,14 @@ class M3U8Pipeline(PipelineLoggerMixin):
         # 启动监控线程
         self.monitor_thread = threading.Thread(target=self._monitor_downloads, daemon=True)
         self.monitor_thread.start()
-        
+
     def _load_excluded_titles(self):
         """
         加载从 utils/chigua 文件中排除的标题列表
         """
         excluded_titles = set()
         chigua_path = os.path.join(os.path.dirname(__file__), 'utils', '51chigua.txt')
-        
+
         if os.path.exists(chigua_path):
             try:
                 with open(chigua_path, 'r', encoding='utf-8') as f:
@@ -163,7 +169,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 self.log(f"加载排除标题文件失败: {e}")
         else:
             self.log(f"排除标题文件不存在: {chigua_path}")
-            
+
         return excluded_titles
 
     def _is_title_excluded(self, title):
@@ -208,61 +214,301 @@ class M3U8Pipeline(PipelineLoggerMixin):
     def process_item(self, item, spider):
         """
         处理每个包含m3u8_url的item
-        检查是否已下载完成，支持断点续传
+        支持单个URL和URL列表，进行多层去重检查
         """
         # 检查item是否包含m3u8_url字段
         if 'm3u8_url' not in item:
             self.log(f"Item {item.get('title', 'Unknown')} 没有m3u8_url字段，跳过")
             return item
 
-        m3u8_url = item['m3u8_url']
+        m3u8_url_data = item['m3u8_url']
         title = item.get('title', 'Unknown')
         site = item.get('site', 'unknown')
 
-        self.log(f"M3U8Pipeline接收到item: {title}")
+        # 统一处理：将单个URL转换为列表
+        if isinstance(m3u8_url_data, str):
+            m3u8_urls = [m3u8_url_data]
+        elif isinstance(m3u8_url_data, list):
+            m3u8_urls = m3u8_url_data
+        else:
+            self.log(f"❌ m3u8_url字段类型不支持: {type(m3u8_url_data)}")
+            return item
 
-        # 检查是否在排除列表中
+        self.log(f"🎯 M3U8Pipeline接收到item: {title}, URL数量: {len(m3u8_urls)}")
+
+        # 第一层：检查是否在排除列表中
         if self._is_title_excluded(title):
-            self.log(f"视频 '{title}' 在排除列表中，跳过下载")
+            self.log(f"❌ 视频 '{title}' 在排除列表中，跳过下载")
             return item
 
-        # 检查是否已经下载完成
-        if self._is_download_completed(m3u8_url, title):
-            self.log(f"视频 {title} 已下载完成，跳过下载")
+        # 对URL列表进行去重处理
+        unique_urls = self._deduplicate_urls(m3u8_urls, title)
+
+        if not unique_urls:
+            self.log(f"❌ 所有URL都已处理过或重复，跳过: {title}")
             return item
 
-        # 检查是否已经在下载队列中
-        with self.lock:
-            if m3u8_url in self.downloading_urls:
-                self.log(f"视频 {title} 已在下载队列中，跳过")
-                return item
+        self.log(f"✅ 去重后的URL数量: {len(unique_urls)}")
 
-            # 标记为正在下载
-            self.downloading_urls.add(m3u8_url)
-            # 增加活动下载计数
-            self.active_downloads += 1
+        # 处理每个唯一的URL
+        processed_count = 0
+        for m3u8_url in unique_urls:
+            if self._process_single_url(m3u8_url, title, site, item):
+                processed_count += 1
 
-        # 获取存储路径
-        dir_path = self.get_directory_path(item)
-
-        # 确保目录存在
-        if not os.path.exists(dir_path):
-            os.makedirs(dir_path)
-            self.log(f"创建目录: {dir_path}")
-
-        # 获取临时文件路径并添加数据库记录
-        temp_file_path = self._get_temp_file_path(m3u8_url, title)
-        self.db.add_download_record(m3u8_url, title, site, temp_file_path)
-
-        # 提交到线程池异步下载
-        future = self.download_executor.submit(self._download_video_async, item, dir_path)
-
-        # 添加完成回调
-        future.add_done_callback(lambda f: self._download_completed(f, m3u8_url, title))
-
-        self.log(f"已提交M3U8下载任务到线程池: {title}")
+        if processed_count > 0:
+            self.log(f"✅ 成功处理了 {processed_count} 个URL，标题: {title}")
+        else:
+            self.log(f"❌ 没有成功处理任何URL，标题: {title}")
 
         return item
+
+    def _deduplicate_urls(self, m3u8_urls, title):
+        """
+        对m3u8_url列表进行去重
+        """
+        unique_urls = []
+        seen_urls = set()
+        seen_url_keys = set()
+
+        for url in m3u8_urls:
+            if not url or not isinstance(url, str):
+                continue
+
+            # URL标准化
+            normalized_url = url.strip()
+
+            # 第一步：完全相同的URL去重
+            if normalized_url in seen_urls:
+                self.log(f"🔄 发现完全重复的URL，跳过: {normalized_url[:100]}...")
+                continue
+
+            # 第二步：提取URL关键特征进行去重
+            url_key = self._extract_url_key(normalized_url)
+            if url_key in seen_url_keys:
+                self.log(f"🔄 发现相似URL，跳过: {normalized_url[:100]}...")
+                continue
+
+            # 第三步：检查是否已在会话中处理过
+            with self.lock:
+                if normalized_url in self.processed_urls:
+                    self.log(f"🔄 URL已在本次会话中处理过，跳过: {normalized_url[:100]}...")
+                    continue
+
+                # 检查相似URL
+                is_similar, similar_url = self._is_similar_url(normalized_url)
+                if is_similar:
+                    self.log(f"🔄 发现相似URL已处理，跳过: {normalized_url[:100]}...")
+                    continue
+
+            # 第四步：检查数据库
+            if self.db.is_downloaded(normalized_url):
+                self.log(f"🔄 URL已在数据库中存在，跳过: {normalized_url[:100]}...")
+                with self.lock:
+                    self.processed_urls.add(normalized_url)
+                continue
+
+            # 第五步：检查是否在当前下载队列中
+            with self.lock:
+                if normalized_url in self.downloading_urls:
+                    self.log(f"🔄 URL已在下载队列中，跳过: {normalized_url[:100]}...")
+                    continue
+
+            # 通过所有检查，添加到唯一列表
+            unique_urls.append(normalized_url)
+            seen_urls.add(normalized_url)
+            seen_url_keys.add(url_key)
+
+        return unique_urls
+
+    def _process_single_url(self, m3u8_url, title, site, item):
+        """
+        处理单个m3u8 URL
+        """
+        try:
+            # 最后一次检查：确保URL仍然有效
+            with self.lock:
+                # 再次检查是否在下载队列中（避免并发问题）
+                if m3u8_url in self.downloading_urls:
+                    self.log(f"❌ URL已在下载队列中，跳过: {m3u8_url[:100]}...")
+                    return False
+
+                # 标记为正在下载
+                self.downloading_urls.add(m3u8_url)
+                self.downloading_titles.add(title)
+                self.processed_urls.add(m3u8_url)
+                self.processed_titles.add(title)
+
+            # 生成唯一的文件名（防止多个URL下载到同一文件）
+            safe_filename = self.sanitize_filename(title)
+
+            # 如果有多个URL，需要添加序号
+            url_hash = self._get_url_hash(m3u8_url)
+            final_filename = f"{safe_filename}_{url_hash}"
+
+            output_file = os.path.join(self.videos_store, f"{final_filename}.mp4")
+
+            # 检查文件是否已存在
+            if os.path.exists(output_file):
+                with self.lock:
+                    self.downloading_urls.discard(m3u8_url)
+                    self.downloading_titles.discard(title)
+                self.log(f"❌ 文件已存在，跳过: {output_file}")
+                self.db.mark_as_downloaded(m3u8_url, output_file, "already_exists")
+                return False
+
+            # 使用临时文件进行下载
+            temp_file = f"{output_file}.tmp"
+            
+            # 记录下载开始到数据库
+            self.db.add_download_record(m3u8_url, title, item.get('site', 'unknown'), temp_file)
+            
+            # 调用实际的下载方法
+            future = self.download_executor.submit(self.download_m3u8, {'m3u8_url': m3u8_url, 'title': title, 'site': site}, temp_file)
+            # 添加回调函数
+            future.add_done_callback(lambda f: self._download_completed(f, m3u8_url, title))
+            self.download_tasks.append(future)
+
+            self.log(f"✅ 已添加到下载队列: {title} -> {m3u8_url[:100]}...")
+            return True
+
+        except Exception as e:
+            self.log(f"❌ 处理URL失败: {e}")
+            # 清理标记
+            with self.lock:
+                self.downloading_urls.discard(m3u8_url)
+                self.downloading_titles.discard(title)
+            return False
+
+    def _get_url_hash(self, url):
+        """
+        生成URL的短哈希值，用于文件名
+        """
+        import hashlib
+        return hashlib.md5(url.encode()).hexdigest()[:8]
+
+    def _extract_url_key(self, url):
+        """
+        从URL中提取关键标识符用于重复检测
+        增强版本，提取更多特征
+        """
+        import re
+
+        # 方法1：提取长的字母数字组合
+        matches = re.findall(r'[a-zA-Z0-9]{8,}', url)
+        if matches:
+            # 返回最长的匹配项作为关键标识
+            longest_match = max(matches, key=len)
+            if len(longest_match) >= 12:  # 足够长的标识符
+                return longest_match
+
+        # 方法2：提取路径中的关键部分
+        # 例如: /video/abc123/playlist.m3u8 -> abc123
+        path_matches = re.findall(r'/([a-zA-Z0-9]{6,})/', url)
+        if path_matches:
+            return path_matches[-1]  # 取最后一个匹配
+
+        # 方法3：提取文件名（不含扩展名）
+        filename_match = re.search(r'/([^/]+)\.m3u8', url)
+        if filename_match:
+            filename = filename_match.group(1)
+            if len(filename) >= 6:
+                return filename
+
+        # 方法4：如果都没找到，返回URL的哈希值
+        import hashlib
+        return hashlib.md5(url.encode()).hexdigest()[:16]
+
+    def _is_similar_url(self, url):
+        """
+        检查一个URL是否与已处理的URL相似
+        返回 (是否相似, 相似的URL)
+        """
+        # 提取当前URL的关键标识
+        url_key = self._extract_url_key(url)
+        # 遍历已处理的URL，检查是否有相似的
+        for processed_url in self.processed_urls:
+            # 如果是完全相同的URL，跳过（这应该已经在之前的检查中被过滤掉）
+            if url == processed_url:
+                continue
+            # 提取已处理URL的关键标识
+            processed_key = self._extract_url_key(processed_url)
+            
+            # 如果关键标识相同，则认为URL相似
+            if url_key == processed_key:
+                self.log(f"发现相似URL: 新URL: {url[:50]}..., 已处理URL: {processed_url[:50]}...")
+                return True, processed_url
+                
+        # 没有找到相似URL
+        return False, None
+
+    def sanitize_filename(self, filename):
+        """
+        清理文件名，移除或替换不合法字符
+        这个方法与 clean_filename 功能相同，为了保持兼容性而添加
+        """
+        return self.clean_filename(filename)
+
+    def download_m3u8(self, item, output_file):
+        """
+        下载 M3U8 视频文件的主要方法
+        这个方法会被线程池调用
+        """
+        title = item.get('title', 'Unknown')
+        m3u8_url = item['m3u8_url']
+        
+        try:
+            with self.lock:
+                self.active_downloads += 1
+                
+            self.log(f"🚀 开始下载视频: {title}")
+            
+            # 确保输出目录存在
+            output_dir = os.path.dirname(output_file)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                self.log(f"创建输出目录: {output_dir}")
+            
+            # 使用临时文件进行下载
+            temp_file = f"{output_file}.tmp"
+            
+            # 记录下载开始到数据库
+            self.db.add_download_record(m3u8_url, title, item.get('site', 'unknown'), temp_file)
+            
+            # 调用实际的下载方法
+            success = self.download_m3u8_with_resume(m3u8_url, temp_file, title, resume=False)
+            
+            if success:
+                # 下载成功，移动临时文件到最终位置
+                if os.path.exists(temp_file):
+                    shutil.move(temp_file, output_file)
+                    file_size = os.path.getsize(output_file)
+                    
+                    # 更新数据库记录
+                    self.db.update_download_status(m3u8_url, 'completed', output_file, file_size)
+                    
+                    # 添加到排除列表
+                    self._append_to_excluded_list(title)
+                    
+                    self.log(f"✅ 视频下载完成: {title}")
+                    return {'success': True, 'title': title, 'file_path': output_file}
+                else:
+                    self.log(f"❌ 临时文件不存在: {title}")
+                    self.db.update_download_status(m3u8_url, 'failed')
+                    return {'success': False, 'title': title, 'error': '临时文件不存在'}
+            else:
+                # 下载失败
+                self.db.update_download_status(m3u8_url, 'failed')
+                self.log(f"❌ 视频下载失败: {title}")
+                return {'success': False, 'title': title, 'error': 'ffmpeg下载失败'}
+                
+        except Exception as e:
+            self.log(f"❌ 下载过程中出现异常: {title}, 错误: {e}")
+            self.db.update_download_status(m3u8_url, 'error')
+            return {'success': False, 'title': title, 'error': str(e)}
+        finally:
+            with self.lock:
+                self.active_downloads -= 1
 
     def _monitor_downloads(self):
         """
@@ -385,7 +631,8 @@ class M3U8Pipeline(PipelineLoggerMixin):
                 self.log(f"🚀 开始新下载 (线程数: {self.max_threads}): {title}")
 
             # 执行命令并捕获输出（兼容Python 3.6及以下版本）
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=3600)  # 1小时超时
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                                    timeout=3600)  # 1小时超时
 
             if result.returncode == 0:
                 # 检查文件是否真的下载完成（文件大小大于0）
@@ -560,18 +807,30 @@ class M3U8Pipeline(PipelineLoggerMixin):
         """
         try:
             chigua_path = os.path.join(os.path.dirname(__file__), 'utils', '51chigua.txt')
-            
+
             # 确保目录存在
             os.makedirs(os.path.dirname(chigua_path), exist_ok=True)
-            
+
             # 追加标题到文件（不包含.mp4后缀）
             with open(chigua_path, 'a', encoding='utf-8') as f:
                 f.write(f"\n{title}")
-            
+
             # 同时添加到内存中的排除集合，避免重复下载
             self.excluded_titles.add(title)
-            
+
             self.log(f"✅ 已将标题 '{title}' 追加到排除列表文件: {chigua_path}")
-            
+
         except Exception as e:
             self.log(f"❌ 追加标题到排除列表失败: {title}, 错误: {e}")
+
+    def get_url_dedup_stats(self):
+        """
+        获取URL去重统计信息
+        """
+        with self.lock:
+            return {
+                'downloading_urls': len(self.downloading_urls),
+                'processed_urls': len(self.processed_urls),
+                'downloading_titles': len(self.downloading_titles),
+                'processed_titles': len(self.processed_titles)
+            }

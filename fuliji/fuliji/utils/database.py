@@ -81,6 +81,46 @@ class DownloadDatabase:
         """生成URL的唯一哈希标识"""
         return hashlib.md5(url.encode('utf-8')).hexdigest()
 
+    def is_downloaded(self, url):
+        """检查URL是否已经下载过（无论状态如何）"""
+        url_hash = self.get_url_hash(url)
+        
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT COUNT(*) as count FROM downloads 
+                    WHERE url_hash = ?
+                ''', (url_hash,))
+                
+                result = cursor.fetchone()
+                return result['count'] > 0
+                
+        except Exception as e:
+            logging.error(f"检查URL是否已下载失败: {e}")
+            return False
+
+    def mark_as_downloaded(self, url, file_path, status='completed'):
+        """标记URL为已下载"""
+        url_hash = self.get_url_hash(url)
+        
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO downloads 
+                    (url_hash, url, title, file_path, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ''', (url_hash, url, 'Unknown', file_path, status))
+                
+                conn.commit()
+                logging.info(f"标记URL为已下载: {url[:50]}...")
+                return True
+                
+        except Exception as e:
+            logging.error(f"标记URL为已下载失败: {e}")
+            return False
+
     def is_download_completed(self, url):
         """检查下载是否已完成"""
         url_hash = self.get_url_hash(url)
