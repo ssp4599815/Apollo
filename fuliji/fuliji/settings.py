@@ -66,7 +66,7 @@ TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
 
 # 日志配置
-LOG_LEVEL = 'DEBUG'
+LOG_LEVEL = 'INFO'
 # 创建logs目录（如果不存在）
 LOG_DIR = 'logs'
 if not os.path.exists(LOG_DIR):
