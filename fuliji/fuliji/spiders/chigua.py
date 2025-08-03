@@ -2,6 +2,7 @@
 # -*-coding:utf-8 -*-
 import json
 import logging
+import re
 
 import scrapy
 from scrapy import Request, Selector
@@ -93,7 +94,7 @@ class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
             m3u8_links = response.xpath("//source[@src[contains(., '.m3u8')]]/@src").extract()
             if not m3u8_links:
                 # 在脚本或其他地方查找m3u8链接
-                m3u8_links = response.re(r'["\']([^"\']*\.m3u8[^"\']*)["\']')
+                m3u8_links = re.findall(r'["\']([^"\']*\.m3u8[^"\']*)["\']', response.text)
 
             if m3u8_links:
                 for m3u8_link in m3u8_links:
