@@ -2,7 +2,7 @@
 temp/
 nohup.out
 pids
-data/
+data
 *.db
 
 ### IntelliJ project files

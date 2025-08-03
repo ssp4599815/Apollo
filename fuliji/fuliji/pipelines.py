@@ -822,15 +822,3 @@ class M3U8Pipeline(PipelineLoggerMixin):
 
         except Exception as e:
             self.log(f"❌ 追加标题到排除列表失败: {title}, 错误: {e}")
-
-    def get_url_dedup_stats(self):
-        """
-        获取URL去重统计信息
-        """
-        with self.lock:
-            return {
-                'downloading_urls': len(self.downloading_urls),
-                'processed_urls': len(self.processed_urls),
-                'downloading_titles': len(self.downloading_titles),
-                'processed_titles': len(self.processed_titles)
-            }
