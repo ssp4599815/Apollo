@@ -207,7 +207,7 @@ class M3U8Pipeline(PipelineLoggerMixin):
             self.downloading_urls.add(m3u8_url)
             self.processed_urls.add(m3u8_url)
 
-            # 更新排队中的下载任务数量
+            # 增加排队中的下载任务数量
             self.download_stats['queued_downloads'] += 1
 
         # 提交下载任务到线程池
@@ -228,7 +228,6 @@ class M3U8Pipeline(PipelineLoggerMixin):
         try:
             with self.lock:
                 self.active_downloads += 1
-                self.download_stats['queued_downloads'] -= 1
 
             self.log(f"🚀 开始下载视频: {title}")
 
