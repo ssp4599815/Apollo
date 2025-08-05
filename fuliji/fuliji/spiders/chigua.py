@@ -21,7 +21,7 @@ class ChiguaSpider(SpiderLoggerMixin, scrapy.Spider):
         self.setup_spider_logger()
 
     def start_requests(self):
-        for page in range(37, 57):
+        for page in range(57, 77):
             for tag in ["萝莉", '一线天', '馒头逼', '福利姬', '自慰',
                         '美乳', '粉嫩', '学生妹', '鲍鱼', '嫩穴', '小穴',
                         '大学', '高中']:
